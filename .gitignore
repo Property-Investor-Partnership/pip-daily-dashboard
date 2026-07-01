@@ -1,0 +1,14 @@
+# Generated intermediate data (rebuilt every run; final data lives inside docs/index.html)
+scripts/dashboard_data_v2.json
+
+# Raw HubSpot exports contain client PII (names, emails, amounts) — NEVER commit to a public repo.
+# The dashboard only needs the aggregated figures baked into docs/index.html.
+data/*.csv
+
+# Python / macOS / editor cruft
+__pycache__/
+*.pyc
+.DS_Store
+*.swp
+*.tmp
+docs/*.tmp

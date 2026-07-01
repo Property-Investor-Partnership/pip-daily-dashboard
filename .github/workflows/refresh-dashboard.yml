@@ -1,0 +1,61 @@
+name: Refresh dashboard from HubSpot
+
+# Runs on a schedule (and on-demand) to pull the latest investment data
+# from HubSpot, rebuild docs/index.html, and commit. GitHub Pages then
+# redeploys automatically.
+
+on:
+  schedule:
+    # 06:00 UTC daily = 07:00 London (BST) / 06:00 (GMT).
+    # GitHub cron is always UTC. Adjust the hour if you want a different time.
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}   # lets you trigger a run manually from the Actions tab
+
+# Allow the workflow to push the rebuilt HTML back to the repo.
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-dashboard
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch latest data from HubSpot
+        env:
+          HUBSPOT_TOKEN: ${{ secrets.HUBSPOT_TOKEN }}
+          PIP_OUT_CSV: data/investment-export.csv
+        run: |
+          if [ -z "$HUBSPOT_TOKEN" ]; then
+            echo "::error::HUBSPOT_TOKEN secret is not set. Add it in Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          python3 scripts/fetch_hubspot.py
+
+      - name: Rebuild the dashboard HTML
+        run: |
+          python3 scripts/build.py data/investment-export.csv
+
+      - name: Commit and push if the dashboard changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Commit ONLY the built HTML (aggregated figures, no raw client rows).
+          # The raw CSV stays out of the public repo (see .gitignore).
+          git add docs/index.html
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Auto-refresh dashboard from HubSpot ($(date -u +'%Y-%m-%d %H:%M UTC'))"
+            git push
+          fi

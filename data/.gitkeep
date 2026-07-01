@@ -1,0 +1,3 @@
+This folder holds the HubSpot CSV export at build time.
+Raw CSVs are gitignored (they contain client PII) and are never committed.
+GitHub Actions writes investment-export.csv here during each scheduled run, builds, then discards it.

@@ -145,7 +145,7 @@ pending = {"total": pending_total, "count": pending_count, "by_project": pending
 ad = defaultdict(lambda: [0, 0.0])
 for r in live:
     k = gv(r, "Developer (project)") or "(blank)"
-    ad[k][0] += 1; ad[k][1] += num(r.get("Live Investment Amount")) or 0
+    ad[k][0] += 1; ad[k][1] += num(r.get("Investment")) or 0
 aum_by_developer = [{"developer": k, "total": round(v[1], 2), "count": v[0]}
                     for k, v in sorted(ad.items(), key=lambda x: -x[1][1])]
 

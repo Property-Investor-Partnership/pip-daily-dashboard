@@ -19,6 +19,23 @@ import json
 import glob
 import subprocess
 from datetime import datetime
+try:
+    from zoneinfo import ZoneInfo   # Python 3.9+
+    UK_TZ = ZoneInfo("Europe/London")
+except Exception:
+    UK_TZ = None   # fall back to naive local time if zoneinfo unavailable
+
+
+def _now_uk():
+    """Return current UK local time (Europe/London — handles BST/GMT).
+
+    On the GitHub Actions runner the system clock is UTC, so a naive
+    datetime.now() reads an hour behind British Summer Time. Using ZoneInfo
+    gives us the correct wall-clock time year-round.
+    """
+    if UK_TZ is not None:
+        return datetime.now(UK_TZ)
+    return datetime.now()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -59,11 +76,11 @@ def parse_now(args):
         if a == "--date" and i + 1 < len(args):
             try:
                 d = datetime.strptime(args[i + 1], "%Y-%m-%d")
-                n = datetime.now()
+                n = _now_uk()
                 return d.replace(hour=n.hour, minute=n.minute, second=n.second)
             except ValueError:
                 fail("--date must be YYYY-MM-DD")
-    return datetime.now()
+    return _now_uk()
 
 
 def run(script, csv_path, env):
@@ -83,7 +100,12 @@ def swap(now):
     if not os.path.exists(JSON_PATH):
         fail("Data file not produced; aggregation may have failed.")
     data = json.load(open(JSON_PATH, encoding="utf-8"))
-    data["generated_at"] = now.replace(microsecond=0).isoformat()
+    # Strip tzinfo so the ISO string stays in the same shape as before (no
+    # "+01:00" suffix). The wall-clock value is already UK local time.
+    generated = now.replace(microsecond=0)
+    if generated.tzinfo is not None:
+        generated = generated.replace(tzinfo=None)
+    data["generated_at"] = generated.isoformat()
     blob = "const DATA=" + json.dumps(data, separators=(",", ":"), ensure_ascii=False) + ";\nconst C="
     html = open(SITE_HTML, encoding="utf-8").read()
     pat = re.compile(r"const DATA=\{.*?\};\nconst C=", re.DOTALL)

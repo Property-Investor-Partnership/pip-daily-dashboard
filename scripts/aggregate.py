@@ -114,7 +114,7 @@ def agg(records, field, valfield="Investment", blank_label="(blank)"):
 # ---- Sets ----
 live=[r for r in rows if g(r,"Live Investment Status").lower()=="true"]
 total_book=sum(num(r.get("Investment")) or 0 for r in rows)
-live_aum=sum(num(r.get("Live Investment Amount")) or 0 for r in live)
+live_aum=sum(num(r.get("Investment")) or 0 for r in live)
 live_full_val=sum(num(r.get("Full Valuation")) or 0 for r in live)
 # Live accrued-interest box uses the "Total Accumulated Interest" column (client change 25 Jun 2026).
 live_acc_int=sum(num(r.get("Total Accumulated Interest")) or 0 for r in live)
@@ -129,7 +129,7 @@ avg_rate_all=sum(rates_all)/len(rates_all) if rates_all else 0
 # weighted avg rate on live (by live amount)
 wnum=wden=0
 for r in live:
-    rt=num(r.get("Interest Rate")); amt=num(r.get("Live Investment Amount")) or 0
+    rt=num(r.get("Interest Rate")); amt=num(r.get("Investment")) or 0
     if rt is not None: wnum+= rt*100*amt; wden+=amt
 w_avg_rate_live = wnum/wden if wden else 0
 
@@ -146,7 +146,7 @@ def payout_class(pt):
 ig=defaultdict(lambda:[0,0.0])
 for r in live:
     cls="Growth" if g(r,"Payout Type").lower()=="bullet" else ("Income" if g(r,"Payout Type").lower() in("quarterly","biannual") else "Unspecified")
-    ig[cls][0]+=1; ig[cls][1]+= num(r.get("Live Investment Amount")) or 0
+    ig[cls][0]+=1; ig[cls][1]+= num(r.get("Investment")) or 0
 income_growth=[{"key":k,"count":v[0],"sum":round(v[1],2)} for k,v in sorted(ig.items(),key=lambda x:-x[1][1])]
 
 # ---- MATURITY profile (live) ----
@@ -155,7 +155,7 @@ def maturity_date(r):
 # by year
 mat_y=defaultdict(lambda:[0,0.0]); no_mat=[0,0.0]
 for r in live:
-    dt=maturity_date(r); amt=num(r.get("Live Investment Amount")) or 0
+    dt=maturity_date(r); amt=num(r.get("Investment")) or 0
     if dt: mat_y[dt.year][0]+=1; mat_y[dt.year][1]+=amt
     else: no_mat[0]+=1; no_mat[1]+=amt
 maturity_by_year=[{"year":y,"count":mat_y[y][0],"sum":round(mat_y[y][1],2)} for y in sorted(mat_y)]
@@ -165,7 +165,7 @@ for r in live:
     dt=maturity_date(r)
     if dt and dt>=datetime(NOW.year,NOW.month,1):
         key=f"{dt.year}-{dt.month:02d}"
-        mat_m[key][0]+=1; mat_m[key][1]+= num(r.get("Live Investment Amount")) or 0
+        mat_m[key][0]+=1; mat_m[key][1]+= num(r.get("Investment")) or 0
 maturity_by_month=[{"month":k,"count":mat_m[k][0],"sum":round(mat_m[k][1],2)} for k in sorted(mat_m)][:24]
 # monthly maturity broken down by project (merged phased names) for the overview filter
 import re as _re_m
@@ -181,7 +181,7 @@ for r in live:
     key=f"{dt.year}-{dt.month:02d}"
     if key not in _mat_idx: continue
     proj=_base_name_m((g(r,"Investment Project") or "(blank)"))
-    amt=num(r.get("Live Investment Amount")) or 0
+    amt=num(r.get("Investment")) or 0
     _matp[proj][_mat_idx[key]]+=amt
     _matp_tot[proj]+=amt
 _matp_order=sorted(_matp.keys(),key=lambda p:-_matp_tot[p])
@@ -203,7 +203,7 @@ if HAS_DEV_PROJECT:
         key=f"{dt.year}-{dt.month:02d}"
         if key not in _mat_idx: continue
         dev=(r.get(DEV_PROJ_FIELD,"") or "").strip() or "(no developer)"
-        amt=num(r.get("Live Investment Amount")) or 0
+        amt=num(r.get("Investment")) or 0
         _matd[dev][_mat_idx[key]]+=amt
         _matd_tot[dev]+=amt
     _matd_order=sorted(_matd.keys(),key=lambda d:-_matd_tot[d])
@@ -288,7 +288,7 @@ for r in proj_received:
 proj_totals=defaultdict(float)
 for r in rows:
     if g(r,"Live Investment Status").lower()=="true":
-        proj_totals[g(r,"Investment Project") or "(blank)"]+= num(r.get("Live Investment Amount")) or 0
+        proj_totals[g(r,"Investment Project") or "(blank)"]+= num(r.get("Investment")) or 0
 # latest maturity date per project (date the final investment(s) of the project matured).
 # Used to label/sort ended (no-live-capital) projects. Uses End Date, falling back to
 # Estimated End Date, across that project's received investments; keep the max (latest).
@@ -440,7 +440,7 @@ if HAS_DEV_PROJECT:
         cell=dev_cap[dev]; cell["count"]+=1
         if is_net_new(r): cell["net_new"]+= num(r.get("Investment")) or 0
         if is_received(r): cell["gross"]+= num(r.get("Investment")) or 0
-        if g(r,"Live Investment Status").lower()=="true": cell["live"]+= num(r.get("Live Investment Amount")) or 0
+        if g(r,"Live Investment Status").lower()=="true": cell["live"]+= num(r.get("Investment")) or 0
 dev_project_capital=sorted(
     [{"developer":k,"net_new":round(v["net_new"],2),"gross":round(v["gross"],2),
       "live":round(v["live"],2),"count":v["count"]} for k,v in dev_cap.items()],
@@ -484,11 +484,11 @@ out={
  },
  "live":{
    "income_growth": income_growth,
-   "by_payout": agg(live,"Payout Type","Live Investment Amount"),
-   "by_advice": agg(live,"Advice Type","Live Investment Amount"),
-   "by_project": agg(live,"Investment Project","Live Investment Amount"),
-   "by_servicing_adviser": agg(live,"Servicing Adviser","Live Investment Amount"),
-   "by_term": term_agg(live,"Live Investment Amount"),
+   "by_payout": agg(live,"Payout Type","Investment"),
+   "by_advice": agg(live,"Advice Type","Investment"),
+   "by_project": agg(live,"Investment Project","Investment"),
+   "by_servicing_adviser": agg(live,"Servicing Adviser","Investment"),
+   "by_term": term_agg(live,"Investment"),
    "maturity_by_year": maturity_by_year,
    "maturity_by_month": maturity_by_month,
    "maturity_by_month_projects": maturity_by_month_projects,

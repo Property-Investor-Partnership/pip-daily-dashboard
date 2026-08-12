@@ -453,6 +453,110 @@ developer_project_data={
     "capital_by_developer": dev_project_capital,
 }
 
+# ============================================================================
+# RAISING PROGRESS (Aug 2026): month-to-date raise vs monthly requirement,
+# per developer/project company. Data source: data/companies-export.csv,
+# produced by fetch_hubspot.py using the crm.objects.companies.read scope.
+#
+# Join key: company.sub_projects_string == investment.Investment Project.
+# The dashboard renders one card per developer/project company that has a
+# non-zero Monthly Raising Requirement. Pace-adjusted colour:
+#   day_of_month / days_in_month gives expected % of monthly target by today.
+# ============================================================================
+import calendar
+_COMPANIES_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "..", "data", "companies-export.csv")
+_MONTH_START = NOW.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+_DAYS_IN_MONTH = calendar.monthrange(NOW.year, NOW.month)[1]
+_EXPECTED_PCT = NOW.day / _DAYS_IN_MONTH   # 1st = 1/31 ≈ 3.2%, last day = 1.00
+
+def _color_bucket(actual_pct, expected_pct, target_hit):
+    # target_hit overrides everything (monthly requirement met outright)
+    if target_hit:
+        return "cyan"
+    if expected_pct <= 0:
+        return "red"
+    r = actual_pct / expected_pct
+    if r >= 1.10:  return "dgreen"
+    if r >= 1.00:  return "mgreen"
+    if r >= 0.90:  return "lgreen"
+    if r >= 0.80:  return "yellow"
+    if r >= 0.70:  return "orange"
+    return "red"
+
+# Sum MTD raised & count per Investment Project.
+# Rule: known Start Date, in current month, not in the future.
+_mtd_by_project = defaultdict(lambda: [0.0, 0])   # [sum, count]
+for r in rows:
+    sd = parse_date(r.get("Start Date"))
+    if not sd:
+        continue
+    if sd.year != NOW.year or sd.month != NOW.month:
+        continue
+    if sd.date() > NOW.date():
+        continue
+    proj = (g(r, "Investment Project") or "").strip()
+    if not proj:
+        continue
+    amt = num(r.get("Investment")) or 0
+    _mtd_by_project[proj][0] += amt
+    _mtd_by_project[proj][1] += 1
+
+raising_progress = {
+    "available": False,
+    "generated_at": NOW.isoformat(),
+    "month_label": NOW.strftime("%B %Y"),
+    "day_of_month": NOW.day,
+    "days_in_month": _DAYS_IN_MONTH,
+    "expected_pct": round(_EXPECTED_PCT, 4),
+    "companies": [],
+}
+
+if os.path.exists(_COMPANIES_CSV):
+    try:
+        with open(_COMPANIES_CSV, encoding="utf-8-sig") as _cf:
+            _companies = list(csv.DictReader(_cf))
+    except Exception as _e:
+        print("  raising_progress: could not read companies CSV:", _e)
+        _companies = []
+
+    for c in _companies:
+        if (c.get("Company Type") or "").strip() != "Developer/Project":
+            continue
+        mrr = num(c.get("Monthly Raising Requirement")) or 0
+        if mrr <= 0:
+            continue
+        sub = (c.get("Sub Projects (String)") or "").strip()
+        raised, count = _mtd_by_project.get(sub, [0.0, 0])
+        actual_pct = (raised / mrr) if mrr > 0 else 0.0
+        target_hit = raised >= mrr
+        bucket = _color_bucket(actual_pct, _EXPECTED_PCT, target_hit)
+        raising_progress["companies"].append({
+            "name": (c.get("Company name") or "").strip() or sub or "(unnamed)",
+            "sub_project": sub,
+            "monthly_target": round(mrr, 2),
+            "raising_requirement_total": round(num(c.get("Raising Requirements")) or 0, 2),
+            "raised_mtd": round(raised, 2),
+            "investments_mtd": count,
+            "actual_pct": round(actual_pct, 4),
+            "pace_ratio": round(actual_pct / _EXPECTED_PCT, 4) if _EXPECTED_PCT > 0 else 0,
+            "expected_by_today": round(mrr * _EXPECTED_PCT, 2),
+            "target_hit": target_hit,
+            "bucket": bucket,
+            "faded": count == 0,
+        })
+    # Sort by monthly raising target, largest first (top-left = highest target,
+    # bottom-right = lowest).
+    raising_progress["companies"].sort(key=lambda x: -x["monthly_target"])
+    raising_progress["available"] = len(raising_progress["companies"]) > 0
+    print("Raising progress: %d companies, month=%s, day %d/%d (%.1f%% expected)" % (
+        len(raising_progress["companies"]),
+        raising_progress["month_label"],
+        NOW.day, _DAYS_IN_MONTH, _EXPECTED_PCT*100,
+    ))
+else:
+    print("  raising_progress: no companies CSV found at", _COMPANIES_CSV, "— section will be hidden.")
+
 out={
  "generated_at": NOW.isoformat(),
  "currency":"GBP",
@@ -515,7 +619,8 @@ out={
    # `dev_project_map` = Investment Project -> parent developer company.
    # `dev_project_capital` = parent developer -> net-new / gross / live capital (for later use).
    "developer_project": developer_project_data,
- }
+ },
+ "raising_progress": raising_progress,
 }
 
 json.dump(out, open(os.environ.get("PIP_JSON") or os.path.join(os.path.dirname(os.path.abspath(__file__)),"dashboard_data_v2.json"),"w"), indent=2)

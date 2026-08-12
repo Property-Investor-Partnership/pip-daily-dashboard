@@ -65,6 +65,9 @@ def find_csv(args):
             return os.path.abspath(a)
         fail("File not found: " + a)
     csvs = glob.glob(os.path.join(DATA_DIR, "*.csv"))
+    # Exclude the companies CSV — that's a sidecar file for the raising_progress
+    # section and must not be picked up as the primary investments export.
+    csvs = [c for c in csvs if os.path.basename(c) != "companies-export.csv"]
     if not csvs:
         fail("No CSV found in " + DATA_DIR + ". Add a HubSpot export and re-run.")
     csvs.sort(key=os.path.getmtime, reverse=True)

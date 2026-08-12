@@ -180,6 +180,110 @@ def main():
     sys.stderr.write(f"Wrote {len(records)} rows -> {out_csv}\n")
     print(out_csv)
 
+    # ------------------------------------------------------------------
+    # Also fetch companies (developer/project + client) so the aggregate
+    # step can compute the monthly raising-progress rollup. Uses the
+    # crm.objects.companies.read + crm.schemas.companies.read scopes.
+    # Non-fatal on error: if this fails, the raising_progress section is
+    # simply hidden on the dashboard.
+    # ------------------------------------------------------------------
+    try:
+        fetch_companies_csv()
+    except SystemExit as e:
+        # SystemExit from _req is fatal for the investments fetch (the
+        # dashboard cannot render without it), but the companies fetch is
+        # optional — log and continue so the workflow still completes.
+        sys.stderr.write(f"WARN: companies fetch failed: {e}\n")
+    except Exception as e:
+        sys.stderr.write(f"WARN: companies fetch failed: {e}\n")
+
+
+# ============================================================================
+# COMPANIES FETCH — for the raising-progress dashboard section.
+# ============================================================================
+COMPANY_COLUMN_MAP = [
+    ("Record ID",                        "hs_object_id"),
+    ("Company name",                     "name"),
+    ("Company Type",                     "company_type"),
+    ("Monthly Raising Requirement",      "monthly_raising_requirement"),
+    ("Raising Requirements",             "raising_requirements"),
+    ("Sub Projects (String)",            "sub_projects_string"),
+]
+
+
+def fetch_all_companies(props):
+    """Page through /crm/v3/objects/companies/search using hs_object_id cursor.
+
+    Same cursor pattern as the investments fetch — walks past both the
+    2,500-record list cap and the 10,000-per-query search cap.
+    """
+    out, seen, last_id = [], set(), 0
+    while True:
+        body = {
+            "limit": PAGE_SIZE,
+            "properties": props,
+            "sorts": [{"propertyName": "hs_object_id", "direction": "ASCENDING"}],
+            "filterGroups": [{"filters": [
+                {"propertyName": "hs_object_id", "operator": "GT", "value": str(last_id)}
+            ]}],
+        }
+        d = _req("POST", "/crm/v3/objects/companies/search", body)
+        res = d.get("results", [])
+        if not res:
+            break
+        for r in res:
+            if r["id"] in seen:
+                continue
+            seen.add(r["id"])
+            out.append(r)
+        last_id = res[-1]["id"]
+        sys.stderr.write(f"  companies fetched {len(out)} (last id {last_id})\n")
+        if len(res) < PAGE_SIZE:
+            break
+        time.sleep(0.15)
+    return out
+
+
+def load_company_enum_labels(prop):
+    """Company object schema uses /properties/companies/{prop} (built-in object)."""
+    try:
+        d = _req("GET", f"/crm/v3/properties/companies/{prop}")
+    except SystemExit:
+        return {}
+    return {o["value"]: o.get("label", o["value"]) for o in d.get("options", [])}
+
+
+def fetch_companies_csv():
+    out_csv = os.environ.get("PIP_COMPANIES_CSV", "data/companies-export.csv")
+
+    sys.stderr.write("Loading company_type dropdown labels...\n")
+    company_type_labels = load_company_enum_labels("company_type")
+
+    props = sorted({api for _, api in COMPANY_COLUMN_MAP})
+    sys.stderr.write(f"Fetching all companies ({len(props)} properties)...\n")
+    records = fetch_all_companies(props)
+    sys.stderr.write(f"Total companies: {len(records)}\n")
+
+    headers = [c for c, _ in COMPANY_COLUMN_MAP]
+    os.makedirs(os.path.dirname(out_csv) or ".", exist_ok=True)
+    tmp = out_csv + ".tmp"
+    with open(tmp, "w", newline="", encoding="utf-8-sig") as f:
+        w = csv.writer(f)
+        w.writerow(headers)
+        for rec in records:
+            p = rec.get("properties", {})
+            row = []
+            for _, api in COMPANY_COLUMN_MAP:
+                v = p.get(api, "")
+                if v is None:
+                    v = ""
+                if api == "company_type" and v:
+                    v = company_type_labels.get(str(v), v)
+                row.append(v)
+            w.writerow(row)
+    os.replace(tmp, out_csv)
+    sys.stderr.write(f"Wrote {len(records)} company rows -> {out_csv}\n")
+
 
 if __name__ == "__main__":
     main()

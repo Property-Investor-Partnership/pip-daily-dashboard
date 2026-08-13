@@ -538,8 +538,14 @@ if os.path.exists(_COMPANIES_CSV):
         sub = (c.get("Sub Projects (String)") or "").strip()
         raised, count = _mtd_by_project.get(sub, [0.0, 0])
         mr_sum, mr_count = _mr_by_project.get(sub, [0.0, 0])
-        actual_pct = (raised / mrr) if mrr > 0 else 0.0
-        target_hit = raised >= mrr
+        # Combined = MTD raised + Money Received. This is what drives
+        # actual_pct, pace_ratio, bucket colour, and target_hit — so a
+        # company with funds in but not yet legally completed still gets
+        # credit toward its monthly raising target.
+        combined = raised + mr_sum
+        combined_count = count + mr_count
+        actual_pct = (combined / mrr) if mrr > 0 else 0.0
+        target_hit = combined >= mrr
         bucket = _color_bucket(actual_pct, _EXPECTED_PCT, target_hit)
         raising_progress["companies"].append({
             "name": (c.get("Company name") or "").strip() or sub or "(unnamed)",
@@ -550,6 +556,8 @@ if os.path.exists(_COMPANIES_CSV):
             "investments_mtd": count,
             "money_received_mtd": round(mr_sum, 2),
             "money_received_count": mr_count,
+            "combined_mtd": round(combined, 2),
+            "combined_count": combined_count,
             "actual_pct": round(actual_pct, 4),
             "pace_ratio": round(actual_pct / _EXPECTED_PCT, 4) if _EXPECTED_PCT > 0 else 0,
             "expected_by_today": round(mrr * _EXPECTED_PCT, 2),

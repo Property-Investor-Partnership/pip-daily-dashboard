@@ -487,7 +487,20 @@ def _color_bucket(actual_pct, expected_pct, target_hit):
 # Sum MTD raised & count per Investment Project.
 # Rule: known Start Date, in current month, not in the future.
 _mtd_by_project = defaultdict(lambda: [0.0, 0])   # [sum, count]
+# Separately: Money Received investments (funds in, not legally completed yet).
+# These typically have no Start Date (or a future one), so are excluded from
+# raised-MTD but are useful to show alongside as "in the pipeline".
+_mr_by_project = defaultdict(lambda: [0.0, 0])    # [sum, count]
 for r in rows:
+    proj = (g(r, "Investment Project") or "").strip()
+    if not proj:
+        continue
+    amt = num(r.get("Investment")) or 0
+    # Money Received pipeline sum (any date)
+    if stage_of(r) == "money received":
+        _mr_by_project[proj][0] += amt
+        _mr_by_project[proj][1] += 1
+    # MTD raised (known Start Date, in current month, not future)
     sd = parse_date(r.get("Start Date"))
     if not sd:
         continue
@@ -495,10 +508,6 @@ for r in rows:
         continue
     if sd.date() > NOW.date():
         continue
-    proj = (g(r, "Investment Project") or "").strip()
-    if not proj:
-        continue
-    amt = num(r.get("Investment")) or 0
     _mtd_by_project[proj][0] += amt
     _mtd_by_project[proj][1] += 1
 
@@ -528,6 +537,7 @@ if os.path.exists(_COMPANIES_CSV):
             continue
         sub = (c.get("Sub Projects (String)") or "").strip()
         raised, count = _mtd_by_project.get(sub, [0.0, 0])
+        mr_sum, mr_count = _mr_by_project.get(sub, [0.0, 0])
         actual_pct = (raised / mrr) if mrr > 0 else 0.0
         target_hit = raised >= mrr
         bucket = _color_bucket(actual_pct, _EXPECTED_PCT, target_hit)
@@ -538,12 +548,14 @@ if os.path.exists(_COMPANIES_CSV):
             "raising_requirement_total": round(num(c.get("Raising Requirements")) or 0, 2),
             "raised_mtd": round(raised, 2),
             "investments_mtd": count,
+            "money_received_mtd": round(mr_sum, 2),
+            "money_received_count": mr_count,
             "actual_pct": round(actual_pct, 4),
             "pace_ratio": round(actual_pct / _EXPECTED_PCT, 4) if _EXPECTED_PCT > 0 else 0,
             "expected_by_today": round(mrr * _EXPECTED_PCT, 2),
             "target_hit": target_hit,
             "bucket": bucket,
-            "faded": count == 0,
+            "faded": count == 0 and mr_count == 0,
         })
     # Sort by monthly raising target, largest first (top-left = highest target,
     # bottom-right = lowest).

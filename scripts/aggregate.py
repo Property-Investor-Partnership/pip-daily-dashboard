@@ -491,9 +491,21 @@ _mtd_by_project = defaultdict(lambda: [0.0, 0])   # [sum, count]
 # These typically have no Start Date (or a future one), so are excluded from
 # raised-MTD but are useful to show alongside as "in the pipeline".
 _mr_by_project = defaultdict(lambda: [0.0, 0])    # [sum, count]
+def _excluded_from_raising_req(r):
+    """HubSpot flag: 'Exclude from this Month's Raising Req'. True means
+    the investment must be omitted from ALL Raising Progress figures
+    (raised MTD, money received, counts, colour logic, everything).
+    HubSpot bool exports arrive as 'true'/'True'/'TRUE' or blank.
+    """
+    v = (g(r, "Exclude from this Month's Raising Req") or "").strip().lower()
+    return v == "true"
+
 for r in rows:
     proj = (g(r, "Investment Project") or "").strip()
     if not proj:
+        continue
+    # Honour the manual HubSpot flag: skip entirely for Raising Progress.
+    if _excluded_from_raising_req(r):
         continue
     amt = num(r.get("Investment")) or 0
     # Money Received pipeline sum (any date)

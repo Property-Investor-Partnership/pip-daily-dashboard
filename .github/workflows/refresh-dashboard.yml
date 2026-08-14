@@ -6,10 +6,11 @@ name: Refresh dashboard from HubSpot
 
 on:
   schedule:
-    # 06:00 UTC daily = 07:00 London (BST) / 06:00 (GMT).
-    # GitHub cron is always UTC. Adjust the hour if you want a different time.
-    - cron: "0 6 * * *"
+    # Hourly 9am–6pm London (BST). GitHub cron is always UTC — subtract 1h.
+    # In GMT (late Oct → late Mar) change to "0 9-18 * * *".
+    - cron: "0 8-17 * * *"
   workflow_dispatch: {}   # lets you trigger a run manually from the Actions tab
+
 
 # Allow the workflow to push the rebuilt HTML back to the repo.
 permissions:

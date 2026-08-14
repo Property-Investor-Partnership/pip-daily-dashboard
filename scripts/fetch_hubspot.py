@@ -104,6 +104,41 @@ def load_enum_labels(prop):
     return {o["value"]: o.get("label", o["value"]) for o in d.get("options", [])}
 
 
+def load_owner_labels():
+    """Map HubSpot owner IDs (returned as strings by owner-type properties)
+    to a human-readable name. Falls back to email if the owner has no first
+    or last name populated. Requires the `crm.objects.owners.read` scope.
+    Returns {} on error so any fetch failure just leaves the raw IDs in
+    place rather than blowing up the whole export.
+    """
+    out = {}
+    after = None
+    try:
+        while True:
+            path = "/crm/v3/owners?limit=100"
+            if after:
+                path += f"&after={after}"
+            d = _req("GET", path)
+            for o in d.get("results", []):
+                oid = str(o.get("id", "")).strip()
+                if not oid:
+                    continue
+                first = (o.get("firstName") or "").strip()
+                last = (o.get("lastName") or "").strip()
+                name = (first + " " + last).strip()
+                if not name:
+                    name = (o.get("email") or "").strip()
+                if name:
+                    out[oid] = name
+            paging = d.get("paging", {}).get("next", {})
+            after = paging.get("after")
+            if not after:
+                break
+    except SystemExit:
+        return out
+    return out
+
+
 def fetch_all(props):
     """Page by hs_object_id cursor to retrieve every record."""
     out, seen, last_id = [], set(), 0
@@ -145,6 +180,12 @@ def main():
     sys.stderr.write("Loading dropdown labels...\n")
     payout_labels = load_enum_labels("payout_type")
     advice_labels = load_enum_labels("advice_type")
+    owner_labels = load_owner_labels()
+    sys.stderr.write(f"  {len(owner_labels)} owners resolved\n")
+    # Owner-type properties on investments — replace numeric HubSpot User IDs
+    # with real names so the CSV and downstream dashboard show "Jason Howard"
+    # rather than "31139710".
+    OWNER_PROPS = {"advisor", "selling_adviser"}
 
     props = sorted({api for _, api in COLUMN_MAP})
     sys.stderr.write(f"Fetching all records ({len(props)} properties)...\n")
@@ -173,6 +214,8 @@ def main():
                     v = payout_labels.get(str(v), v)
                 elif api == "advice_type" and v:
                     v = advice_labels.get(str(v), v)
+                elif api in OWNER_PROPS and v:
+                    v = owner_labels.get(str(v), v)
                 row.append(v)
             if DUPLICATE_DEVELOPER:
                 row.append(p.get("developer", "") or "")

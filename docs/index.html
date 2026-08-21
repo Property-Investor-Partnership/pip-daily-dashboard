@@ -426,10 +426,14 @@ footer{padding:26px 0;border-top:1px solid var(--border);font-size:12px;color:va
 <!-- RAISING PROGRESS -->
 <section class="panel" id="raising">
 <div class="wrap">
-  <div class="cmp-head">
+  <div class="cmp-head" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
     <div>
       <h2 class="cmp-title">Raising Progress</h2>
       <div class="cmp-sub" id="rpSub">Month-to-date capital raised per developer/project vs. monthly target.</div>
+    </div>
+    <div class="al-role-pills" id="rpModeToggle" role="tablist" aria-label="Raising Progress view mode" style="flex-shrink:0">
+      <button id="rpModeMonthly" class="pill active" type="button" data-mode="monthly">Monthly</button>
+      <button id="rpModeTotal" class="pill" type="button" data-mode="total">Total</button>
     </div>
   </div>
   <div id="rpHero" class="cmp-hero-wrap"></div>
@@ -1210,91 +1214,158 @@ tlRender();
   const expectedPct=RP.expected_pct||0;
   const overallExpected=totalTarget*expectedPct;
 
-  subEl.textContent=`Left to raise per developer/project this month (live and money received count toward the target). As at ${RP.day_of_month} / ${RP.days_in_month} in ${RP.month_label}.`;
+  /* Colour bucket for TOTAL mode: by % complete of the total raising
+     requirement. Uses the same rp-* class names so existing CSS drives the look. */
+  const totalBucket=(pct)=>{
+    if(pct>=1.00) return 'cyan';
+    if(pct>=0.75) return 'dgreen';
+    if(pct>=0.50) return 'yellow';
+    if(pct>=0.25) return 'orange';
+    return 'red';
+  };
 
-  /* Hero — aggregate totals across all tracked companies */
-  heroEl.innerHTML=`<div class="cmp-hero">
-    <div class="label">${RP.month_label} — left to raise</div>
-    <div class="val">${fmtGBPfull(totalToRaise)}</div>
-    <div class="note">
-      Target ${fmtGBPfull(totalTarget)} · expected by today ${fmtGBPfull(overallExpected)} ·
-      overall pace ${overallExpected>0?((totalCombined/overallExpected)*100).toFixed(0):'—'}%
-      across ${RP.companies.length} project${RP.companies.length===1?'':'s'}
-    </div>
-    <div class="note" style="margin-top:4px;opacity:.85">
-      Live: ${fmtGBPfull(totalRaised)} (${totalInvestments} inv) · money received: ${fmtGBPfull(totalMR)} (${totalMRCount} inv, funds in, not yet legally completed)
-    </div>
-  </div>`;
-
-  /* Grid — one card per company */
   const CARET='<svg class="rp-caret" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg>';
-  gridEl.innerHTML=RP.companies.map((c,i)=>{
-    const bucketClass='rp-'+c.bucket;
-    const target=c.monthly_target||0;
-    const raised=c.raised_mtd||0;
-    const mr=c.money_received_mtd||0;
-    const mrCount=c.money_received_count||0;
-    const combined=(c.combined_mtd!=null)?c.combined_mtd:(raised+mr);
-    const combinedCount=(c.combined_count!=null)?c.combined_count:(c.investments_mtd+mrCount);
-    const pctOfTarget=(c.actual_pct||0)*100;   // now combined ÷ target
-    /* Bar has two visible segments that together represent the same combined
-       progress that drives the colour: solid = completed MTD, dashed = money
-       received (funds in, not yet legally completed). Together they cannot
-       exceed 100% of the bar width. */
-    const raisedPct=target>0?(raised/target)*100:0;
-    const mrPctRaw=target>0?(mr/target)*100:0;
-    const barFillPct=Math.max(0,Math.min(100,raisedPct));
-    const mrLeft=barFillPct;
-    const mrWidth=Math.max(0,Math.min(100-mrLeft,mrPctRaw));
-    const paceMarkerPct=Math.max(0,Math.min(100,expectedPct*100));
-    /* "To raise" = what's still needed this month, floored at 0 so we don't
-       show negative numbers when a project overshoots its target. */
-    const toRaise=Math.max(0, target - raised - mr);
-    const livePct=target>0?(raised/target)*100:0;
-    return `<div class="rp-card ${bucketClass}${c.faded?' faded':''}" data-idx="${i}">
-      <button class="rp-btn" type="button" aria-expanded="false">
-        ${CARET}
-        <div class="rp-name">${esc(c.name)}</div>
-        <div class="rp-toraise">${fmtGBPfull(toRaise)} <span class="rp-toraise-lbl">to raise</span></div>
-        <div class="rp-row rp-row-live">
-          <div class="rp-live">${fmtGBPfull(raised)} live</div>
-          <div class="rp-pct">${livePct.toFixed(0)}%</div>
-        </div>
-        <div class="rp-meta">Money received: ${fmtGBPfull(mr)}</div>
-        <div class="rp-meta">Monthly target: ${fmtGBPfull(target)}</div>
-        <div class="rp-bar" title="Solid = live (completed MTD) · dashed = money received · vertical marker = expected pace by today">
-          <div class="rp-bar-fill" style="width:${barFillPct}%"></div>
-          ${mrWidth>0?`<div class="rp-bar-mr" style="left:${mrLeft}%;width:${mrWidth}%"></div>`:''}
-          <div class="rp-bar-pace" style="left:${paceMarkerPct}%"></div>
-        </div>
-      </button>
-      <div class="rp-detail">
-        <div class="rp-detail-inner">
-          <div class="rp-detail-row"><span class="rp-detail-lbl">Monthly target</span><span class="rp-detail-val">${fmtGBPfull(target)}</span></div>
-          <div class="rp-detail-row"><span class="rp-detail-lbl">Left to raise</span><span class="rp-detail-val">${fmtGBPfull(toRaise)}</span></div>
-          <div class="rp-detail-row"><span class="rp-detail-lbl">Total this month</span><span class="rp-detail-val">${fmtGBPfull(combined)} · ${combinedCount} inv</span></div>
-          <div class="rp-detail-row"><span class="rp-detail-lbl"> Live (completed MTD)</span><span class="rp-detail-val">${fmtGBPfull(raised)} · ${c.investments_mtd} inv</span></div>
-          <div class="rp-detail-row"><span class="rp-detail-lbl"> Money received</span><span class="rp-detail-val">${fmtGBPfull(mr)} · ${mrCount} inv</span></div>
-          <div class="rp-detail-row"><span class="rp-detail-lbl">Expected by today</span><span class="rp-detail-val">${fmtGBPfull(c.expected_by_today)}</span></div>
-          <div class="rp-detail-row"><span class="rp-detail-lbl">Pace vs. expected</span><span class="rp-detail-val">${(c.pace_ratio*100).toFixed(0)}%</span></div>
-          <div class="rp-detail-row"><span class="rp-detail-lbl">Total raised (all-time)</span><span class="rp-detail-val">${c.total_raised_lifetime>0?fmtGBPfull(c.total_raised_lifetime):'—'}</span></div>
-          <div class="rp-detail-row"><span class="rp-detail-lbl">Total raising requirement</span><span class="rp-detail-val">${c.raising_requirement_total>0?fmtGBPfull(c.raising_requirement_total):'—'}</span></div>
-        </div>
+
+  function renderMonthly(){
+    subEl.textContent=`Left to raise per developer/project this month (live and money received count toward the target). As at ${RP.day_of_month} / ${RP.days_in_month} in ${RP.month_label}.`;
+
+    heroEl.innerHTML=`<div class="cmp-hero">
+      <div class="label">${RP.month_label} — left to raise</div>
+      <div class="val">${fmtGBPfull(totalToRaise)}</div>
+      <div class="note">
+        Target ${fmtGBPfull(totalTarget)} · expected by today ${fmtGBPfull(overallExpected)} ·
+        overall pace ${overallExpected>0?((totalCombined/overallExpected)*100).toFixed(0):'—'}%
+        across ${RP.companies.length} project${RP.companies.length===1?'':'s'}
+      </div>
+      <div class="note" style="margin-top:4px;opacity:.85">
+        Live: ${fmtGBPfull(totalRaised)} (${totalInvestments} inv) · money received: ${fmtGBPfull(totalMR)} (${totalMRCount} inv, funds in, not yet legally completed)
       </div>
     </div>`;
-  }).join('');
 
-  /* Tap/click to expand detail */
-  gridEl.querySelectorAll('.rp-btn').forEach(btn=>{
-    btn.addEventListener('click',()=>{
-      const card=btn.closest('.rp-card');
-      const open=card.classList.toggle('open');
-      btn.setAttribute('aria-expanded',open?'true':'false');
+    // Sort monthly view by monthly target, largest first
+    const cards=RP.companies.slice().sort((a,b)=>(b.monthly_target||0)-(a.monthly_target||0));
+    gridEl.innerHTML=cards.map((c,i)=>{
+      const bucketClass='rp-'+c.bucket;
+      const target=c.monthly_target||0;
+      const raised=c.raised_mtd||0;
+      const mr=c.money_received_mtd||0;
+      const mrCount=c.money_received_count||0;
+      const combined=(c.combined_mtd!=null)?c.combined_mtd:(raised+mr);
+      const combinedCount=(c.combined_count!=null)?c.combined_count:(c.investments_mtd+mrCount);
+      const raisedPct=target>0?(raised/target)*100:0;
+      const mrPctRaw=target>0?(mr/target)*100:0;
+      const barFillPct=Math.max(0,Math.min(100,raisedPct));
+      const mrLeft=barFillPct;
+      const mrWidth=Math.max(0,Math.min(100-mrLeft,mrPctRaw));
+      const paceMarkerPct=Math.max(0,Math.min(100,expectedPct*100));
+      const toRaise=Math.max(0, target - raised - mr);
+      const livePct=target>0?(raised/target)*100:0;
+      return `<div class="rp-card ${bucketClass}${c.faded?' faded':''}" data-idx="${i}">
+        <button class="rp-btn" type="button" aria-expanded="false">
+          ${CARET}
+          <div class="rp-name">${esc(c.name)}</div>
+          <div class="rp-toraise">${fmtGBPfull(toRaise)} <span class="rp-toraise-lbl">to raise</span></div>
+          <div class="rp-row rp-row-live">
+            <div class="rp-live">${fmtGBPfull(raised)} live</div>
+            <div class="rp-pct">${livePct.toFixed(0)}%</div>
+          </div>
+          <div class="rp-meta">Money received: ${fmtGBPfull(mr)}</div>
+          <div class="rp-meta">Monthly target: ${fmtGBPfull(target)}</div>
+          <div class="rp-bar" title="Solid = live (completed MTD) · dashed = money received · vertical marker = expected pace by today">
+            <div class="rp-bar-fill" style="width:${barFillPct}%"></div>
+            ${mrWidth>0?`<div class="rp-bar-mr" style="left:${mrLeft}%;width:${mrWidth}%"></div>`:''}
+            <div class="rp-bar-pace" style="left:${paceMarkerPct}%"></div>
+          </div>
+        </button>
+        <div class="rp-detail">
+          <div class="rp-detail-inner">
+            <div class="rp-detail-row"><span class="rp-detail-lbl">Monthly target</span><span class="rp-detail-val">${fmtGBPfull(target)}</span></div>
+            <div class="rp-detail-row"><span class="rp-detail-lbl">Left to raise</span><span class="rp-detail-val">${fmtGBPfull(toRaise)}</span></div>
+            <div class="rp-detail-row"><span class="rp-detail-lbl">Total this month</span><span class="rp-detail-val">${fmtGBPfull(combined)} · ${combinedCount} inv</span></div>
+            <div class="rp-detail-row"><span class="rp-detail-lbl"> Live (completed MTD)</span><span class="rp-detail-val">${fmtGBPfull(raised)} · ${c.investments_mtd} inv</span></div>
+            <div class="rp-detail-row"><span class="rp-detail-lbl"> Money received</span><span class="rp-detail-val">${fmtGBPfull(mr)} · ${mrCount} inv</span></div>
+            <div class="rp-detail-row"><span class="rp-detail-lbl">Expected by today</span><span class="rp-detail-val">${fmtGBPfull(c.expected_by_today)}</span></div>
+            <div class="rp-detail-row"><span class="rp-detail-lbl">Pace vs. expected</span><span class="rp-detail-val">${(c.pace_ratio*100).toFixed(0)}%</span></div>
+            <div class="rp-detail-row"><span class="rp-detail-lbl">Total raised (all-time)</span><span class="rp-detail-val">${c.total_raised_lifetime>0?fmtGBPfull(c.total_raised_lifetime):'—'}</span></div>
+            <div class="rp-detail-row"><span class="rp-detail-lbl">Total raising requirement</span><span class="rp-detail-val">${c.raising_requirement_total>0?fmtGBPfull(c.raising_requirement_total):'—'}</span></div>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+    attachExpanders();
+  }
+
+  function renderTotal(){
+    subEl.textContent=`Lifetime capital raised per developer/project vs. total raising requirement.`;
+
+    const projectsWithReq=RP.companies.filter(c=>(c.raising_requirement_total||0)>0);
+    const sumReq=projectsWithReq.reduce((a,c)=>a+(c.raising_requirement_total||0),0);
+    const sumRaised=projectsWithReq.reduce((a,c)=>a+(c.total_raised_lifetime||0),0);
+    const sumLeft=projectsWithReq.reduce((a,c)=>a+Math.max(0,(c.raising_requirement_total||0)-(c.total_raised_lifetime||0)),0);
+    const overallPct=sumReq>0?(sumRaised/sumReq)*100:0;
+
+    heroEl.innerHTML=`<div class="cmp-hero">
+      <div class="label">Total — left to raise</div>
+      <div class="val">${fmtGBPfull(sumLeft)}</div>
+      <div class="note">
+        Total requirement ${fmtGBPfull(sumReq)} · raised ${fmtGBPfull(sumRaised)} (${overallPct.toFixed(0)}%) ·
+        across ${projectsWithReq.length} project${projectsWithReq.length===1?'':'s'}
+      </div>
+    </div>`;
+
+    // Sort total view by total raising requirement, largest first
+    const cards=RP.companies.slice().sort((a,b)=>(b.raising_requirement_total||0)-(a.raising_requirement_total||0));
+    gridEl.innerHTML=cards.map((c,i)=>{
+      const req=c.raising_requirement_total||0;
+      const raised=c.total_raised_lifetime||0;
+      const mr=c.money_received_mtd||0;
+      const toRaise=Math.max(0, req - raised);
+      const pct=req>0?(raised/req):0;
+      const bucketClass='rp-'+(req>0?totalBucket(pct):'red');
+      const faded=req===0;
+      const barFillPct=Math.max(0,Math.min(100,pct*100));
+      return `<div class="rp-card ${bucketClass}${faded?' faded':''}" data-idx="${i}">
+        <button class="rp-btn" type="button" aria-expanded="false">
+          ${CARET}
+          <div class="rp-name">${esc(c.name)}</div>
+          <div class="rp-toraise">${req>0?fmtGBPfull(toRaise):'—'} <span class="rp-toraise-lbl">to raise</span></div>
+          <div class="rp-row rp-row-live">
+            <div class="rp-live">${fmtGBPfull(raised)} raised</div>
+            <div class="rp-pct">${req>0?(pct*100).toFixed(0)+'%':'—'}</div>
+          </div>
+          <div class="rp-meta">Money received: ${fmtGBPfull(mr)}</div>
+          <div class="rp-meta">Total raising requirement: ${req>0?fmtGBPfull(req):'—'}</div>
+          <div class="rp-bar" title="Total raised ÷ total raising requirement">
+            <div class="rp-bar-fill" style="width:${barFillPct}%"></div>
+          </div>
+        </button>
+        <div class="rp-detail">
+          <div class="rp-detail-inner">
+            <div class="rp-detail-row"><span class="rp-detail-lbl">Total raising requirement</span><span class="rp-detail-val">${req>0?fmtGBPfull(req):'—'}</span></div>
+            <div class="rp-detail-row"><span class="rp-detail-lbl">Total raised (all-time)</span><span class="rp-detail-val">${fmtGBPfull(raised)}</span></div>
+            <div class="rp-detail-row"><span class="rp-detail-lbl">Left to raise</span><span class="rp-detail-val">${req>0?fmtGBPfull(toRaise):'—'}</span></div>
+            <div class="rp-detail-row"><span class="rp-detail-lbl">Progress</span><span class="rp-detail-val">${req>0?(pct*100).toFixed(0)+'%':'—'}</span></div>
+            <div class="rp-detail-row"><span class="rp-detail-lbl">Monthly target</span><span class="rp-detail-val">${fmtGBPfull(c.monthly_target||0)}</span></div>
+            <div class="rp-detail-row"><span class="rp-detail-lbl">Money received (this month)</span><span class="rp-detail-val">${fmtGBPfull(mr)}</span></div>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+    attachExpanders();
+  }
+
+  function attachExpanders(){
+    gridEl.querySelectorAll('.rp-btn').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        const card=btn.closest('.rp-card');
+        const open=card.classList.toggle('open');
+        btn.setAttribute('aria-expanded',open?'true':'false');
+      });
     });
-  });
+  }
 
-  /* Legend */
-  const BUCKETS=[
+  /* Legend — rebuilt on mode change so labels match the colouring model */
+  const BUCKETS_MONTHLY=[
     {c:'red',    lbl:'≤30% below pace'},
     {c:'orange', lbl:'≤20% below pace'},
     {c:'yellow', lbl:'≤10% below pace'},
@@ -1303,8 +1374,32 @@ tlRender();
     {c:'dgreen', lbl:'+20% above pace'},
     {c:'cyan',   lbl:'Target met'},
   ];
-  legendEl.innerHTML='<span class="rp-legend-title">Colour scale</span>'+
-    BUCKETS.map(b=>`<span class="rp-legend-item"><span class="rp-legend-swatch rp-${b.c}"></span>${b.lbl}</span>`).join('');
+  const BUCKETS_TOTAL=[
+    {c:'red',    lbl:'<25% complete'},
+    {c:'orange', lbl:'25–50% complete'},
+    {c:'yellow', lbl:'50–75% complete'},
+    {c:'dgreen', lbl:'75–100% complete'},
+    {c:'cyan',   lbl:'Target met'},
+  ];
+  function renderLegend(mode){
+    const list=(mode==='total')?BUCKETS_TOTAL:BUCKETS_MONTHLY;
+    legendEl.innerHTML='<span class="rp-legend-title">Colour scale</span>'+
+      list.map(b=>`<span class="rp-legend-item"><span class="rp-legend-swatch rp-${b.c}"></span>${b.lbl}</span>`).join('');
+  }
+
+  let rpMode='monthly';
+  const rpMonthlyBtn=document.getElementById('rpModeMonthly');
+  const rpTotalBtn=document.getElementById('rpModeTotal');
+  function setMode(m){
+    rpMode=m;
+    rpMonthlyBtn.classList.toggle('active', m==='monthly');
+    rpTotalBtn.classList.toggle('active', m==='total');
+    if(m==='total') renderTotal(); else renderMonthly();
+    renderLegend(m);
+  }
+  rpMonthlyBtn.addEventListener('click',()=>setMode('monthly'));
+  rpTotalBtn.addEventListener('click',()=>setMode('total'));
+  setMode('monthly');
 })();
 
 document.querySelectorAll('.tab').forEach(t=>{t.addEventListener('click',()=>{

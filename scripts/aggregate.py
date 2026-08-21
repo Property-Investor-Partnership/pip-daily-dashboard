@@ -491,6 +491,11 @@ _mtd_by_project = defaultdict(lambda: [0.0, 0])   # [sum, count]
 # These typically have no Start Date (or a future one), so are excluded from
 # raised-MTD but are useful to show alongside as "in the pipeline".
 _mr_by_project = defaultdict(lambda: [0.0, 0])    # [sum, count]
+# Lifetime total raised per Investment Project (all-time, since inception).
+# Rule: known Start Date <= today, name excludes Partial Redemption / Takeover.
+# Includes rows regardless of the 'Exclude from this Month's Raising Req' flag
+# (that flag is monthly-scoped only).
+_total_raised_by_project = defaultdict(float)
 def _excluded_from_raising_req(r):
     """HubSpot flag: 'Exclude from this Month's Raising Req'. True means
     the investment must be omitted from ALL Raising Progress figures
@@ -504,16 +509,26 @@ for r in rows:
     proj = (g(r, "Investment Project") or "").strip()
     if not proj:
         continue
-    # Honour the manual HubSpot flag: skip entirely for Raising Progress.
+    amt = num(r.get("Investment")) or 0
+    sd = parse_date(r.get("Start Date"))
+
+    # Lifetime total raised per project. Runs BEFORE the monthly-exclude
+    # filter because this figure is all-time and unaffected by the flag.
+    # Rule: known Start Date <= today, and name excludes
+    # "Partial Redemption" / "Takeover" (case-insensitive substring).
+    if sd and sd.date() <= NOW.date():
+        _iname = (r.get("Name") or "").lower()
+        if "partial redemption" not in _iname and "takeover" not in _iname:
+            _total_raised_by_project[proj] += amt
+
+    # Honour the manual HubSpot flag: skip entirely for MONTHLY figures.
     if _excluded_from_raising_req(r):
         continue
-    amt = num(r.get("Investment")) or 0
     # Money Received pipeline sum (any date)
     if stage_of(r) == "money received":
         _mr_by_project[proj][0] += amt
         _mr_by_project[proj][1] += 1
     # MTD raised (known Start Date, in current month, not future)
-    sd = parse_date(r.get("Start Date"))
     if not sd:
         continue
     if sd.year != NOW.year or sd.month != NOW.month:
@@ -564,6 +579,7 @@ if os.path.exists(_COMPANIES_CSV):
             "sub_project": sub,
             "monthly_target": round(mrr, 2),
             "raising_requirement_total": round(num(c.get("Raising Requirements")) or 0, 2),
+            "total_raised_lifetime": round(_total_raised_by_project.get(sub, 0.0), 2),
             "raised_mtd": round(raised, 2),
             "investments_mtd": count,
             "money_received_mtd": round(mr_sum, 2),

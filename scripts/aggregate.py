@@ -560,7 +560,11 @@ if os.path.exists(_COMPANIES_CSV):
         if (c.get("Company Type") or "").strip() != "Developer/Project":
             continue
         mrr = num(c.get("Monthly Raising Requirement")) or 0
-        if mrr <= 0:
+        rr_total = num(c.get("Raising Requirements")) or 0
+        # Include a project if it has EITHER a monthly requirement (drives the
+        # Monthly view) or a total raising requirement (drives the Total view).
+        # Projects with neither are still skipped.
+        if mrr <= 0 and rr_total <= 0:
             continue
         sub = (c.get("Sub Projects (String)") or "").strip()
         raised, count = _mtd_by_project.get(sub, [0.0, 0])
@@ -578,7 +582,7 @@ if os.path.exists(_COMPANIES_CSV):
             "name": (c.get("Company name") or "").strip() or sub or "(unnamed)",
             "sub_project": sub,
             "monthly_target": round(mrr, 2),
-            "raising_requirement_total": round(num(c.get("Raising Requirements")) or 0, 2),
+            "raising_requirement_total": round(rr_total, 2),
             "total_raised_lifetime": round(_total_raised_by_project.get(sub, 0.0), 2),
             "raised_mtd": round(raised, 2),
             "investments_mtd": count,
@@ -595,7 +599,10 @@ if os.path.exists(_COMPANIES_CSV):
         })
     # Sort by monthly raising target, largest first (top-left = highest target,
     # bottom-right = lowest).
-    raising_progress["companies"].sort(key=lambda x: -x["monthly_target"])
+    # Sort by monthly target first (largest first) so the Monthly view is
+    # already in the right order; the Total view re-sorts by
+    # raising_requirement_total client-side.
+    raising_progress["companies"].sort(key=lambda x: (-x["monthly_target"], -x["raising_requirement_total"]))
     raising_progress["available"] = len(raising_progress["companies"]) > 0
     print("Raising progress: %d companies, month=%s, day %d/%d (%.1f%% expected)" % (
         len(raising_progress["companies"]),

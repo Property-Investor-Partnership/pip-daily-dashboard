@@ -496,6 +496,11 @@ _mr_by_project = defaultdict(lambda: [0.0, 0])    # [sum, count]
 # Includes rows regardless of the 'Exclude from this Month's Raising Req' flag
 # (that flag is monthly-scoped only).
 _total_raised_by_project = defaultdict(float)
+# Year of the most recent live investment (Start Date) per project. Used by the
+# "Projects Without a Target" section to let the user filter by completion year.
+# Same eligibility rules as _total_raised_by_project (Partial Redemption /
+# Takeover excluded).
+_last_completion_year_by_project = {}
 def _excluded_from_raising_req(r):
     """HubSpot flag: 'Exclude from this Month's Raising Req'. True means
     the investment must be omitted from ALL Raising Progress figures
@@ -520,6 +525,9 @@ for r in rows:
         _iname = (r.get("Name") or "").lower()
         if "partial redemption" not in _iname and "takeover" not in _iname:
             _total_raised_by_project[proj] += amt
+            prev_yr = _last_completion_year_by_project.get(proj)
+            if prev_yr is None or sd.year > prev_yr:
+                _last_completion_year_by_project[proj] = sd.year
 
     # Honour the manual HubSpot flag: skip entirely for MONTHLY figures.
     if _excluded_from_raising_req(r):
@@ -561,14 +569,18 @@ if os.path.exists(_COMPANIES_CSV):
             continue
         mrr = num(c.get("Monthly Raising Requirement")) or 0
         rr_total = num(c.get("Raising Requirements")) or 0
-        # Include a project if it has EITHER a monthly requirement (drives the
-        # Monthly view) or a total raising requirement (drives the Total view).
-        # Projects with neither are still skipped.
-        if mrr <= 0 and rr_total <= 0:
-            continue
         sub = (c.get("Sub Projects (String)") or "").strip()
         raised, count = _mtd_by_project.get(sub, [0.0, 0])
         mr_sum, mr_count = _mr_by_project.get(sub, [0.0, 0])
+        lifetime_raised = _total_raised_by_project.get(sub, 0.0)
+        has_target = (mrr > 0 or rr_total > 0)
+        has_activity = (count > 0 or mr_count > 0 or lifetime_raised > 0)
+        # Include a project if it has EITHER a target (MRR/RR) or any raising
+        # activity (live MTD, money received MTD, or lifetime raised). Projects
+        # with neither are skipped so the aggregator doesn't emit dead cards.
+        # The client splits target vs no-target into separate sections.
+        if not has_target and not has_activity:
+            continue
         # Combined = MTD raised + Money Received. This is what drives
         # actual_pct, pace_ratio, bucket colour, and target_hit — so a
         # company with funds in but not yet legally completed still gets
@@ -583,7 +595,7 @@ if os.path.exists(_COMPANIES_CSV):
             "sub_project": sub,
             "monthly_target": round(mrr, 2),
             "raising_requirement_total": round(rr_total, 2),
-            "total_raised_lifetime": round(_total_raised_by_project.get(sub, 0.0), 2),
+            "total_raised_lifetime": round(lifetime_raised, 2),
             "raised_mtd": round(raised, 2),
             "investments_mtd": count,
             "money_received_mtd": round(mr_sum, 2),
@@ -596,6 +608,9 @@ if os.path.exists(_COMPANIES_CSV):
             "target_hit": target_hit,
             "bucket": bucket,
             "faded": count == 0 and mr_count == 0,
+            # Flag + year for the "Projects Without a Target" section.
+            "no_target": not has_target,
+            "year_of_most_recent_completion": _last_completion_year_by_project.get(sub),
         })
     # Sort by monthly raising target, largest first (top-left = highest target,
     # bottom-right = lowest).

@@ -487,9 +487,10 @@ def _color_bucket(actual_pct, expected_pct, target_hit):
 # Sum MTD raised & count per Investment Project.
 # Rule: known Start Date, in current month, not in the future.
 _mtd_by_project = defaultdict(lambda: [0.0, 0])   # [sum, count]
-# Separately: Money Received investments (funds in, not legally completed yet).
-# These typically have no Start Date (or a future one), so are excluded from
-# raised-MTD but are useful to show alongside as "in the pipeline".
+# Money Received investments (funds in, not yet legally completed) - all-time,
+# not month-scoped. Whatever is currently sitting in the "Money Received" stage
+# in HubSpot, regardless of when it entered that stage. Emitted as
+# `money_received_pending` on each project.
 _mr_by_project = defaultdict(lambda: [0.0, 0])    # [sum, count]
 # Lifetime total raised per Investment Project (all-time, since inception).
 # Rule: known Start Date <= today, name excludes Partial Redemption / Takeover.
@@ -576,7 +577,7 @@ if os.path.exists(_COMPANIES_CSV):
         has_target = (mrr > 0 or rr_total > 0)
         has_activity = (count > 0 or mr_count > 0 or lifetime_raised > 0)
         # Include a project if it has EITHER a target (MRR/RR) or any raising
-        # activity (live MTD, money received MTD, or lifetime raised). Projects
+        # activity (live MTD, money received pending, or lifetime raised). Projects
         # with neither are skipped so the aggregator doesn't emit dead cards.
         # The client splits target vs no-target into separate sections.
         if not has_target and not has_activity:
@@ -598,8 +599,11 @@ if os.path.exists(_COMPANIES_CSV):
             "total_raised_lifetime": round(lifetime_raised, 2),
             "raised_mtd": round(raised, 2),
             "investments_mtd": count,
-            "money_received_mtd": round(mr_sum, 2),
-            "money_received_count": mr_count,
+            # Pending completion: funds in, not yet legally completed. All-time,
+            # not month-scoped (an investment can sit in this stage across
+            # months until it legally completes).
+            "money_received_pending": round(mr_sum, 2),
+            "money_received_pending_count": mr_count,
             "combined_mtd": round(combined, 2),
             "combined_count": combined_count,
             "actual_pct": round(actual_pct, 4),

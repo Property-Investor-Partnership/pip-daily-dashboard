@@ -174,57 +174,58 @@ tbody tr:hover{background:var(--surface-alt)}
 .cmp-proj-val{font-size:13.5px;font-weight:700;font-variant-numeric:tabular-nums lining-nums;color:var(--text);flex:none}
 .cmp-empty{padding:40px 0;text-align:center;color:var(--muted);font-size:14px}
 /* ---------- Raising Progress ---------- */
-.rp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;align-items:start}
-.rp-card{position:relative;border-radius:14px;box-shadow:var(--shadow);overflow:hidden;transition:transform .15s ease,box-shadow .15s ease;border:1px solid rgba(0,0,0,.06)}
+.rp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;align-items:start}
+
+/* Option C - paper-tone cards with a coloured top accent strip and status chip.
+   Every tone class defines --rp-accent (the colour) and --rp-chip-* (soft tint
+   for the status pill). Card body itself stays neutral. */
+.rp-card{position:relative;background:var(--surface-alt);border-radius:12px;border:1px solid var(--border);box-shadow:0 1px 2px rgba(40,37,29,.04);overflow:hidden;transition:transform .15s ease,box-shadow .15s ease}
 .rp-card.faded{opacity:.55}
-.rp-card:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(40,37,29,.10),0 2px 4px rgba(40,37,29,.06)}
-.rp-btn{width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:16px 17px 14px;display:block;font:inherit;color:inherit}
-.rp-name{font-size:14px;font-weight:800;color:#fff;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,.15)}
+.rp-card:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(40,37,29,.08),0 2px 4px rgba(40,37,29,.04)}
+.rp-card::before{content:'';display:block;height:4px;background:var(--rp-accent,#999)}
+.rp-btn{width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:14px 17px 14px;display:block;font:inherit;color:inherit}
+.rp-header{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;padding-right:22px}
+.rp-name{font-size:14.5px;font-weight:800;color:var(--text);line-height:1.25;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.rp-chip{font-size:10px;font-weight:700;letter-spacing:.05em;padding:3px 8px;border-radius:999px;text-transform:uppercase;background:var(--rp-chip-bg,rgba(0,0,0,.06));color:var(--rp-chip-fg,var(--muted));flex:none;white-space:nowrap;line-height:1.4}
 .rp-row{display:flex;align-items:baseline;justify-content:space-between;margin-top:10px;gap:8px}
-.rp-row-live{margin-top:6px}
-.rp-raised{font-size:22px;font-weight:900;color:#fff;letter-spacing:-.5px;font-variant-numeric:tabular-nums lining-nums;text-shadow:0 1px 2px rgba(0,0,0,.18);line-height:1}
-.rp-toraise{font-size:22px;font-weight:900;color:#fff;letter-spacing:-.5px;font-variant-numeric:tabular-nums lining-nums;text-shadow:0 1px 2px rgba(0,0,0,.18);line-height:1.1;margin-top:10px}
-.rp-toraise-lbl{font-size:12px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;opacity:.85;margin-left:4px}
-.rp-live{font-size:14px;font-weight:700;color:rgba(255,255,255,.92);font-variant-numeric:tabular-nums lining-nums;text-shadow:0 1px 2px rgba(0,0,0,.15);line-height:1;text-transform:uppercase;letter-spacing:.3px}
-.rp-pct{font-size:14px;font-weight:700;color:rgba(255,255,255,.92);font-variant-numeric:tabular-nums lining-nums;text-shadow:0 1px 2px rgba(0,0,0,.15)}
-.rp-meta{font-size:11.5px;color:rgba(255,255,255,.85);margin-top:6px;text-transform:uppercase;letter-spacing:.4px;font-weight:600}
-.rp-bar{height:6px;background:rgba(255,255,255,.28);border-radius:3px;margin-top:12px;position:relative}
-.rp-bar-fill{position:absolute;left:0;top:0;bottom:0;background:rgba(255,255,255,.85);border-radius:3px 0 0 3px;transition:width .3s ease;z-index:1}
-/* Money Received segment: sits to the right of the raised fill, dashed stripe so
-   it reads as "in the pipeline" rather than counting toward MTD. */
-.rp-bar-mr{position:absolute;top:0;bottom:0;background:repeating-linear-gradient(-45deg,rgba(255,255,255,.85) 0 3px,rgba(255,255,255,.25) 3px 6px);border-radius:0 3px 3px 0;transition:width .3s ease,left .3s ease;z-index:1}
-/* Pace marker: peaks above and below the bar so it stays readable when the fill has passed it. */
-.rp-bar-pace{position:absolute;top:-5px;bottom:-5px;width:2.5px;background:#fff;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.25);z-index:2}
-.rp-caret{position:absolute;top:14px;right:14px;width:14px;height:14px;color:rgba(255,255,255,.8);transition:transform .22s ease}
+.rp-row-live{margin-top:8px}
+.rp-toraise{font-size:24px;font-weight:900;color:var(--text);letter-spacing:-.02em;font-variant-numeric:tabular-nums lining-nums;line-height:1.1}
+.rp-toraise-lbl{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-left:4px}
+.rp-raised,.rp-live{font-size:13.5px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums lining-nums;line-height:1.2}
+.rp-pct{font-size:13.5px;font-weight:800;color:var(--rp-chip-fg,var(--muted));font-variant-numeric:tabular-nums lining-nums}
+.rp-meta{font-size:11.5px;color:var(--muted);margin-top:4px;font-weight:500;line-height:1.45}
+.rp-bar{height:5px;background:rgba(40,37,29,.08);border-radius:999px;margin-top:12px;position:relative;overflow:hidden}
+.rp-bar-fill{position:absolute;left:0;top:0;bottom:0;background:var(--rp-accent,#999);border-radius:999px;transition:width .3s ease;z-index:1}
+.rp-bar-mr{position:absolute;top:0;bottom:0;background:repeating-linear-gradient(-45deg,var(--rp-accent,#999) 0 3px,rgba(40,37,29,.10) 3px 6px);border-radius:999px;transition:width .3s ease,left .3s ease;z-index:1;opacity:.7}
+.rp-bar-pace{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--text);border-radius:2px;opacity:.55;z-index:2}
+.rp-caret{position:absolute;top:16px;right:15px;width:14px;height:14px;color:var(--muted);transition:transform .22s ease;pointer-events:none}
 .rp-card.open .rp-caret{transform:rotate(180deg)}
-.rp-detail{max-height:0;overflow:hidden;transition:max-height .28s ease;background:rgba(255,255,255,.14);border-top:0 solid rgba(255,255,255,.15)}
-.rp-card.open .rp-detail{max-height:400px;border-top:1px solid rgba(255,255,255,.22)}
-.rp-detail-inner{padding:12px 17px 15px;color:#fff}
-.rp-detail-row{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:5px 0;border-bottom:1px dashed rgba(255,255,255,.18)}
+.rp-detail{max-height:0;overflow:hidden;transition:max-height .28s ease;background:rgba(40,37,29,.03);border-top:0 solid var(--border)}
+.rp-card.open .rp-detail{max-height:400px;border-top:1px solid var(--border)}
+.rp-detail-inner{padding:12px 17px 15px;color:var(--text)}
+.rp-detail-row{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:5px 0;border-bottom:1px dashed rgba(40,37,29,.10)}
 .rp-detail-row:last-child{border-bottom:none}
-.rp-detail-lbl{color:rgba(255,255,255,.82);font-weight:500}
-.rp-detail-val{color:#fff;font-weight:700;font-variant-numeric:tabular-nums lining-nums;text-align:right}
-/* Colour buckets — background tone driven by pace-adjusted performance */
-.rp-red    {background:linear-gradient(135deg,#B02A2A,#8A1F1F)}
-.rp-orange {background:linear-gradient(135deg,#D26825,#B0511B)}
-.rp-yellow {background:linear-gradient(135deg,#CFA020,#B48717)}
-.rp-lgreen {background:linear-gradient(135deg,#6FA84B,#568B36)}
-.rp-mgreen {background:linear-gradient(135deg,#448A2F,#316A20)}
-.rp-dgreen {background:linear-gradient(135deg,#1F5C1F,#123E13)}
-.rp-cyan   {background:linear-gradient(135deg,#1D8FA6,#0F6C82)}
-/* Yellow needs darker text for contrast — override on yellow only */
-.rp-yellow .rp-name,.rp-yellow .rp-raised,.rp-yellow .rp-pct,.rp-yellow .rp-live,.rp-yellow .rp-toraise{color:#28251D;text-shadow:none}
-.rp-yellow .rp-meta{color:rgba(40,37,29,.75)}
-.rp-yellow .rp-caret{color:rgba(40,37,29,.7)}
-.rp-yellow .rp-detail-lbl{color:rgba(40,37,29,.75)}
-.rp-yellow .rp-detail-val{color:#28251D}
-.rp-yellow .rp-bar{background:rgba(40,37,29,.18)}
-.rp-yellow .rp-bar-fill{background:rgba(40,37,29,.75)}
-.rp-yellow .rp-bar-mr{background:repeating-linear-gradient(-45deg,rgba(40,37,29,.75) 0 3px,rgba(40,37,29,.20) 3px 6px)}
-.rp-yellow .rp-bar-pace{background:#28251D;box-shadow:0 0 0 1px rgba(255,255,255,.55)}
-.rp-yellow .rp-detail{background:rgba(40,37,29,.08)}
-.rp-yellow.rp-card.open .rp-detail{border-top-color:rgba(40,37,29,.25)}
-.rp-yellow .rp-detail-row{border-bottom-color:rgba(40,37,29,.18)}
+.rp-detail-lbl{color:var(--muted);font-weight:500}
+.rp-detail-val{color:var(--text);font-weight:700;font-variant-numeric:tabular-nums lining-nums;text-align:right}
+
+/* Tone palette. Accent = card top strip + progress bar + chip text; chip-bg is a
+   ~14% tint of the accent so it sits softly on the paper card. */
+.rp-red    {--rp-accent:#B85454;--rp-chip-bg:rgba(184,84,84,.14);--rp-chip-fg:#8F3A3A}
+.rp-orange {--rp-accent:#C97A3D;--rp-chip-bg:rgba(201,122,61,.14);--rp-chip-fg:#995724}
+.rp-yellow {--rp-accent:#C9A845;--rp-chip-bg:rgba(201,168,69,.18);--rp-chip-fg:#7C651B}
+.rp-lgreen {--rp-accent:#6B9B72;--rp-chip-bg:rgba(107,155,114,.16);--rp-chip-fg:#3F7647}
+.rp-mgreen {--rp-accent:#4E8B58;--rp-chip-bg:rgba(78,139,88,.16);--rp-chip-fg:#2F6738}
+.rp-dgreen {--rp-accent:#2F6B3A;--rp-chip-bg:rgba(47,107,58,.16);--rp-chip-fg:#204F28}
+.rp-cyan   {--rp-accent:#3A8592;--rp-chip-bg:rgba(58,133,146,.14);--rp-chip-fg:#1F6D7A}
+
+/* Legend swatch mirrors the accent so the legend still matches the cards. */
+.rp-legend-swatch.rp-red,   .rp-red    .rp-legend-swatch{background:#B85454}
+.rp-legend-swatch.rp-orange,.rp-orange .rp-legend-swatch{background:#C97A3D}
+.rp-legend-swatch.rp-yellow,.rp-yellow .rp-legend-swatch{background:#C9A845}
+.rp-legend-swatch.rp-lgreen,.rp-lgreen .rp-legend-swatch{background:#6B9B72}
+.rp-legend-swatch.rp-mgreen,.rp-mgreen .rp-legend-swatch{background:#4E8B58}
+.rp-legend-swatch.rp-dgreen,.rp-dgreen .rp-legend-swatch{background:#2F6B3A}
+.rp-legend-swatch.rp-cyan,  .rp-cyan   .rp-legend-swatch{background:#3A8592}
 /* Legend */
 .rp-legend{margin-top:22px;padding:14px 16px;background:var(--surface);border:1px solid var(--border);border-radius:12px;display:flex;flex-wrap:wrap;gap:10px 16px;font-size:12px;color:var(--muted);align-items:center}
 .rp-legend-title{font-size:11.5px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;color:var(--text);margin-right:6px}
@@ -1229,6 +1230,15 @@ tlRender();
 
   const CARET='<svg class="rp-caret" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg>';
 
+  /* Chip label for Monthly view: describes what the colour means so the card is
+     legible without the legend. Total view does not use chips. */
+  const chipLabelForBucket=(b)=>{
+    if(b==='cyan') return 'Target Met';
+    if(b==='dgreen' || b==='mgreen') return 'Exceeding';
+    if(b==='lgreen') return 'On Target';
+    return 'Lagging'; /* red, orange, yellow */
+  };
+
   function renderMonthly(){
     subEl.textContent=`Left to raise per developer/project this month (live and money received count toward the target). As at ${RP.day_of_month} / ${RP.days_in_month} in ${RP.month_label}.`;
 
@@ -1263,14 +1273,17 @@ tlRender();
       const paceMarkerPct=Math.max(0,Math.min(100,expectedPct*100));
       const toRaise=Math.max(0, target - raised - mr);
       const livePct=target>0?(raised/target)*100:0;
+      const chipLabel=chipLabelForBucket(c.bucket);
       return `<div class="rp-card ${bucketClass}${c.faded?' faded':''}" data-idx="${i}">
         <button class="rp-btn" type="button" aria-expanded="false">
           ${CARET}
-          <div class="rp-name">${esc(c.name)}</div>
+          <div class="rp-header">
+            <div class="rp-name">${esc(c.name)}</div>
+            <div class="rp-chip">${livePct.toFixed(0)}% · ${chipLabel}</div>
+          </div>
           <div class="rp-toraise">${fmtGBPfull(toRaise)} <span class="rp-toraise-lbl">to raise</span></div>
           <div class="rp-row rp-row-live">
             <div class="rp-live">${fmtGBPfull(raised)} live</div>
-            <div class="rp-pct">${livePct.toFixed(0)}%</div>
           </div>
           <div class="rp-meta">Money received: ${fmtGBPfull(mr)}</div>
           <div class="rp-meta">Monthly target: ${fmtGBPfull(target)}</div>
@@ -1331,11 +1344,13 @@ tlRender();
       return `<div class="rp-card ${bucketClass}${faded?' faded':''}" data-idx="${i}">
         <button class="rp-btn" type="button" aria-expanded="false">
           ${CARET}
-          <div class="rp-name">${esc(c.name)}</div>
+          <div class="rp-header">
+            <div class="rp-name">${esc(c.name)}</div>
+            <div class="rp-pct">${req>0?(pct*100).toFixed(0)+'%':'—'}</div>
+          </div>
           <div class="rp-toraise">${req>0?fmtGBPfull(toRaise):'—'} <span class="rp-toraise-lbl">to raise</span></div>
           <div class="rp-row rp-row-live">
             <div class="rp-live">${fmtGBPfull(raised)} raised</div>
-            <div class="rp-pct">${req>0?(pct*100).toFixed(0)+'%':'—'}</div>
           </div>
           <div class="rp-meta">Money received: ${fmtGBPfull(mr)}</div>
           <div class="rp-meta">Total raising requirement: ${req>0?fmtGBPfull(req):'—'}</div>

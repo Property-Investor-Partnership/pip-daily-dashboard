@@ -492,6 +492,11 @@ _mtd_by_project = defaultdict(lambda: [0.0, 0])   # [sum, count]
 # in HubSpot, regardless of when it entered that stage. Emitted as
 # `money_received_pending` on each project.
 _mr_by_project = defaultdict(lambda: [0.0, 0])    # [sum, count]
+# Written (processed form) investments - paperwork done, not yet received.
+# All-time bucket, same shape as Money Received above. Reported in dropdowns
+# only; does NOT feed into raised/combined/pace/colour/target logic.
+# Emitted as `written_processed_pending` on each project.
+_wp_by_project = defaultdict(lambda: [0.0, 0])    # [sum, count]
 # Lifetime total raised per Investment Project (all-time, since inception).
 # Rule: known Start Date <= today, name excludes Partial Redemption / Takeover.
 # Includes rows regardless of the 'Exclude from this Month's Raising Req' flag
@@ -537,6 +542,11 @@ for r in rows:
     if stage_of(r) == "money received":
         _mr_by_project[proj][0] += amt
         _mr_by_project[proj][1] += 1
+    # Written (processed form) pipeline sum (any date). Info-only bucket,
+    # never rolled into any raised / progress / colour calculation.
+    if stage_of(r) == "written (processed form)":
+        _wp_by_project[proj][0] += amt
+        _wp_by_project[proj][1] += 1
     # MTD raised (known Start Date, in current month, not future)
     if not sd:
         continue
@@ -573,6 +583,7 @@ if os.path.exists(_COMPANIES_CSV):
         sub = (c.get("Sub Projects (String)") or "").strip()
         raised, count = _mtd_by_project.get(sub, [0.0, 0])
         mr_sum, mr_count = _mr_by_project.get(sub, [0.0, 0])
+        wp_sum, wp_count = _wp_by_project.get(sub, [0.0, 0])
         lifetime_raised = _total_raised_by_project.get(sub, 0.0)
         has_target = (mrr > 0 or rr_total > 0)
         has_activity = (count > 0 or mr_count > 0 or lifetime_raised > 0)
@@ -604,6 +615,11 @@ if os.path.exists(_COMPANIES_CSV):
             # months until it legally completes).
             "money_received_pending": round(mr_sum, 2),
             "money_received_pending_count": mr_count,
+            # Written (processed form): paperwork done, not yet received.
+            # Info-only field for dropdowns; does NOT influence raised, combined,
+            # pace, colour bucket, target_hit, or any progress calculation.
+            "written_processed_pending": round(wp_sum, 2),
+            "written_processed_pending_count": wp_count,
             "combined_mtd": round(combined, 2),
             "combined_count": combined_count,
             "actual_pct": round(actual_pct, 4),

@@ -647,6 +647,78 @@ if os.path.exists(_COMPANIES_CSV):
 else:
     print("  raising_progress: no companies CSV found at", _COMPANIES_CSV, "— section will be hidden.")
 
+# =========================================================================
+# Weekly Stats — "New Money" table (Pledged + Written this week)
+# =========================================================================
+# Week window: Monday 00:00:00 -> Sunday 23:59:59.999999 in UK time (NOW
+# is already UK-local via _pip_now / PIP_NOW). Info-only report; nothing
+# here feeds into raising-progress, AUM, or any other calculation.
+#
+# Pledged column: Investment sum where
+#   - stage == "forms out"
+#   - Forms Out Date falls within this week
+#   - Name does NOT contain rollover / extension / takeover (case-insensitive)
+#
+# Written column: Investment sum where
+#   - stage in {written (processed form), money received, project live}
+#   - Written Date falls within this week
+#   - same Name exclusion
+#
+# Only projects with at least one non-zero column are emitted (client
+# request: hide zero-activity rows). Sorted alphabetically. Totals row is
+# computed by the front-end from the emitted rows.
+from datetime import timedelta as _wtd
+# NOW may carry tzinfo when build.py passes PIP_NOW as ISO with offset; other
+# dates in the file (parse_date output) are naive. Strip tzinfo so all
+# comparisons stay naive-vs-naive.
+_wk_now_naive = NOW.replace(tzinfo=None) if getattr(NOW, "tzinfo", None) else NOW
+_wk_monday = (_wk_now_naive - _wtd(days=_wk_now_naive.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+_wk_sunday_end = _wk_monday + _wtd(days=6, hours=23, minutes=59, seconds=59, microseconds=999999)
+
+_WEEKLY_PLEDGED_STAGES = {"forms out"}
+_WEEKLY_WRITTEN_STAGES = {"written (processed form)", "money received", "project live"}
+_WEEKLY_NAME_EXCLUDE   = ("rollover", "extension", "takeover")
+
+def _weekly_name_ok(r):
+    n = (r.get("Name", "") or "").lower()
+    return not any(tok in n for tok in _WEEKLY_NAME_EXCLUDE)
+
+def _weekly_in_window(dt):
+    return dt is not None and _wk_monday <= dt <= _wk_sunday_end
+
+_wk_by_project = defaultdict(lambda: {"pledged": 0.0, "written": 0.0})
+for r in rows:
+    if not _weekly_name_ok(r):
+        continue
+    proj = g(r, "Investment Project") or "(blank)"
+    amt  = num(r.get("Investment")) or 0.0
+    stage = stage_of(r)
+    if stage in _WEEKLY_PLEDGED_STAGES:
+        if _weekly_in_window(parse_date(r.get("Forms Out Date"))):
+            _wk_by_project[proj]["pledged"] += amt
+    if stage in _WEEKLY_WRITTEN_STAGES:
+        if _weekly_in_window(parse_date(r.get("Written Date"))):
+            _wk_by_project[proj]["written"] += amt
+
+_weekly_new_money_rows = [
+    {"project": p, "pledged": round(v["pledged"], 2), "written": round(v["written"], 2)}
+    for p, v in _wk_by_project.items()
+    if v["pledged"] > 0 or v["written"] > 0
+]
+_weekly_new_money_rows.sort(key=lambda x: x["project"].lower())
+
+weekly_stats = {
+    "week_start": _wk_monday.date().isoformat(),
+    "week_end":   (_wk_sunday_end).date().isoformat(),
+    "new_money":  _weekly_new_money_rows,
+}
+print("Weekly Stats (%s -> %s): %d project rows (pledged \u00a3%.0f, written \u00a3%.0f)" % (
+    weekly_stats["week_start"], weekly_stats["week_end"],
+    len(_weekly_new_money_rows),
+    sum(r["pledged"] for r in _weekly_new_money_rows),
+    sum(r["written"] for r in _weekly_new_money_rows),
+))
+
 out={
  "generated_at": NOW.isoformat(),
  "currency":"GBP",
@@ -711,6 +783,7 @@ out={
    "developer_project": developer_project_data,
  },
  "raising_progress": raising_progress,
+ "weekly_stats": weekly_stats,
 }
 
 json.dump(out, open(os.environ.get("PIP_JSON") or os.path.join(os.path.dirname(os.path.abspath(__file__)),"dashboard_data_v2.json"),"w"), indent=2)

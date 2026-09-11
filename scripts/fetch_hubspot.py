@@ -42,6 +42,8 @@ COLUMN_MAP = [
     ("Full Valuation",                "full_valuation"),
     ("Advice Type",                   "advice_type"),
     ("Money Received On",             "money_received_on"),
+    ("Forms Out Date",                "forms_out_date"),
+    ("Written Date",                  "written_date"),
     ("Is Pension",                    "is_pension"),
     ("Active Pipeline True or False", "active_pipeline_true_or_false"),
     ("Developer",                     "developer"),

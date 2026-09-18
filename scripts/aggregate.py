@@ -814,15 +814,17 @@ def _compute_week(monday_dt):
         if amt == 0.0:
             continue
         proj = g(r, "Investment Project") or "(blank)"
-        # Did any "written-tier" stage first-enter within this week?
-        written_hit = any(
-            (stg in _WEEKLY_WRITTEN_STAGES) and (wk_start <= evs[stg] <= wk_end)
-            for stg in evs
-        )
-        if written_hit:
+        # Written = the week the investment FIRST crossed into any written-tier
+        # stage. Subsequent progressions (Written -> Money Received -> Project
+        # Live) must NOT retrigger the Written count in the later week.
+        _wt_times = [evs[s] for s in _WEEKLY_WRITTEN_STAGES if s in evs]
+        first_written_dt = min(_wt_times) if _wt_times else None
+        if first_written_dt is not None and wk_start <= first_written_dt <= wk_end:
             by_project[proj]["written"] += amt
             continue
-        # No written-tier hit — was Forms Out first-entered this week?
+        # Not the "first-crossed-written" week for this investment. Was Forms
+        # Out first-entered this week? (Pledged only if not further along in
+        # the same week — the check above already handled that case.)
         fo_dt = evs.get("forms out")
         if fo_dt is not None and wk_start <= fo_dt <= wk_end:
             by_project[proj]["pledged"] += amt

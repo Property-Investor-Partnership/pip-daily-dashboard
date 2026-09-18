@@ -186,13 +186,17 @@ def fetch_all(props):
     return out
 
 
-def fetch_history_batch(ids, history_props=HISTORY_PROPS, batch_size=100):
+def fetch_history_batch(ids, history_props=HISTORY_PROPS, batch_size=50):
     """Fetch property history for a list of record IDs.
 
     The Search API ignores `propertiesWithHistory`; the batch-read endpoint
     honours it. Returns {id: [{value, timestamp, ...}, ...]} for the FIRST
     property in `history_props` (we only pass hs_pipeline_stage in practice,
     so a flat dict keeps the caller simple).
+
+    Note: /batch/read caps at 100 inputs for current properties but HubSpot
+    enforces a stricter cap of 50 when `propertiesWithHistory` is set
+    (validation error otherwise), so batch_size defaults to 50 here.
     """
     out = {}
     total = len(ids)

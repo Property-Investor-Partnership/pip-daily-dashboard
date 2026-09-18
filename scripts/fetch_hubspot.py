@@ -141,13 +141,29 @@ def load_owner_labels():
     return out
 
 
+# Properties for which we also want the full change history alongside the
+# current value. HubSpot returns this under `propertiesWithHistory` on each
+# record: a list of {value, timestamp, sourceType, ...} entries newest-first.
+# We fetch pipeline stage history to power the Weekly Stats historical view
+# (which needs to know WHEN each investment entered each stage, not just where
+# it is now — the manual Forms Out Date / Written Date fields are unreliable
+# because the team sometimes skips through stages faster than the workflow can
+# stamp them).
+HISTORY_PROPS = ["hs_pipeline_stage"]
+
+
 def fetch_all(props):
-    """Page by hs_object_id cursor to retrieve every record."""
+    """Page by hs_object_id cursor to retrieve every record.
+
+    Also captures pipeline-stage transition history (HISTORY_PROPS) so the
+    aggregator can reconstruct historical weekly activity.
+    """
     out, seen, last_id = [], set(), 0
     while True:
         body = {
             "limit": PAGE_SIZE,
             "properties": props,
+            "propertiesWithHistory": HISTORY_PROPS,
             "sorts": [{"propertyName": "hs_object_id", "direction": "ASCENDING"}],
             "filterGroups": [{"filters": [
                 {"propertyName": "hs_object_id", "operator": "GT", "value": str(last_id)}
@@ -225,6 +241,59 @@ def main():
     os.replace(tmp, out_csv)  # atomic
     sys.stderr.write(f"Wrote {len(records)} rows -> {out_csv}\n")
     print(out_csv)
+
+    # ------------------------------------------------------------------
+    # Write pipeline stage history sidecar: data/stage_history.jsonl.
+    # One line per investment, format:
+    #   {"id":"12345",
+    #    "current":"forms out",
+    #    "history":[{"stage":"pending","ts":"2026-07-18T16:30:00Z"}, ...]}
+    # Stage IDs are resolved to their lowercased display labels here so the
+    # aggregator can compare against string values it already uses elsewhere
+    # (stage_of returns a lowercased label). History is chronological
+    # (oldest first) — HubSpot returns newest first, we reverse.
+    # Gitignored, throwaway (regenerated on every fetch).
+    # ------------------------------------------------------------------
+    out_hist = os.environ.get(
+        "PIP_STAGE_HISTORY",
+        os.path.join(os.path.dirname(out_csv) or ".", "stage_history.jsonl"),
+    )
+    tmp_hist = out_hist + ".tmp"
+    n_hist_rows = 0
+    n_hist_events = 0
+    with open(tmp_hist, "w", encoding="utf-8") as f:
+        for rec in records:
+            rid = rec.get("id")
+            if not rid:
+                continue
+            p = rec.get("properties", {})
+            current_stage_id = str(p.get("hs_pipeline_stage") or "").strip()
+            current_label = stage_labels.get(current_stage_id, current_stage_id).strip().lower()
+            hist_raw = (
+                rec.get("propertiesWithHistory", {}).get("hs_pipeline_stage", []) or []
+            )
+            # Chronological order (oldest first) so aggregator can walk forward.
+            events = []
+            for h in reversed(hist_raw):
+                sid = str(h.get("value") or "").strip()
+                if not sid:
+                    continue
+                label = stage_labels.get(sid, sid).strip().lower()
+                ts = h.get("timestamp") or ""
+                if not ts:
+                    continue
+                events.append({"stage": label, "ts": ts})
+            n_hist_events += len(events)
+            n_hist_rows += 1
+            f.write(json.dumps({
+                "id": rid,
+                "current": current_label,
+                "history": events,
+            }) + "\n")
+    os.replace(tmp_hist, out_hist)
+    sys.stderr.write(
+        f"Wrote stage history for {n_hist_rows} investments ({n_hist_events} events) -> {out_hist}\n"
+    )
 
     # ------------------------------------------------------------------
     # Also fetch companies (developer/project + client) so the aggregate

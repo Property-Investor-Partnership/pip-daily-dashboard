@@ -648,34 +648,83 @@ else:
     print("  raising_progress: no companies CSV found at", _COMPANIES_CSV, "— section will be hidden.")
 
 # =========================================================================
-# Weekly Stats — "New Money" table (Pledged + Written this week)
+# Weekly Stats — "New Money" table (Pledged + Written) with 13 weeks history
 # =========================================================================
-# Week window: Monday 00:00:00 -> Sunday 23:59:59.999999 in UK time (NOW
-# is already UK-local via _pip_now / PIP_NOW). Info-only report; nothing
-# here feeds into raising-progress, AUM, or any other calculation.
+# Data source: pipeline-stage TRANSITION HISTORY from data/stage_history.jsonl
+# (written by fetch_hubspot.py). We DO NOT trust the manual Forms Out Date /
+# Written Date CSV fields — the team sometimes clicks through stages faster
+# than the workflow can stamp those dates, so they under-count activity.
+# Stage transitions are the authoritative log because moving a stage IS the
+# log event.
 #
-# Pledged column: Investment sum where
-#   - stage == "forms out"
-#   - Forms Out Date falls within this week
-#   - Name does NOT contain rollover / extension / takeover (case-insensitive)
+# Columns emitted per week per project:
+#   pledged = investments that entered "forms out" this week AND did NOT
+#             reach written / money received / project live this week
+#   written = investments that entered "written (processed form)", "money
+#             received", or "project live" this week (regardless of whether
+#             forms out also happened this week; the highest-stage-reached
+#             rule means written wins over pledged)
 #
-# Written column: Investment sum where
-#   - stage in {written (processed form), money received, project live}
-#   - Written Date falls within this week
-#   - same Name exclusion
+# Safety rules (per Djinh 18 Sep 2026):
+#   1. Current-stage cap: only count history entries where stage ≤ current
+#      stage in pipeline order. Skipped-then-reverted "click-ahead" errors
+#      get ignored (e.g. accidentally set to Money Received then reverted to
+#      Forms Out — the Money Received entry is ignored).
+#   2. First-entry-per-stage wins: if an investment enters a stage twice
+#      (backward then forward), only the first entry timestamp counts.
+#   3. Terminal-non-live exclusion: any investment whose CURRENT stage is
+#      NTU / cancelled / project ended / project ended (rollover) is dropped
+#      from ALL weeks. Deleted investments are already excluded by the
+#      fetch (search API excludes archived by default).
+#   4. Name exclusion (rollover / extension / takeover) still applies on
+#      current Name. Rollover reporting will get its own table later.
 #
-# Only projects with at least one non-zero column are emitted (client
-# request: hide zero-activity rows). Sorted alphabetically. Totals row is
-# computed by the front-end from the emitted rows.
+# Historical scope: current week + 12 previous weeks (13 total), newest first.
+# Week window: Monday 00:00:00 —> Sunday 23:59:59.999999 UK time.
 from datetime import timedelta as _wtd
-# NOW may carry tzinfo when build.py passes PIP_NOW as ISO with offset; other
-# dates in the file (parse_date output) are naive. Strip tzinfo so all
-# comparisons stay naive-vs-naive.
-_wk_now_naive = NOW.replace(tzinfo=None) if getattr(NOW, "tzinfo", None) else NOW
-_wk_monday = (_wk_now_naive - _wtd(days=_wk_now_naive.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
-_wk_sunday_end = _wk_monday + _wtd(days=6, hours=23, minutes=59, seconds=59, microseconds=999999)
 
-_WEEKLY_PLEDGED_STAGES = {"forms out"}
+# ---- Load stage-history sidecar --------------------------------------------
+_STAGE_HIST_PATH = os.environ.get(
+    "PIP_STAGE_HISTORY",
+    os.path.join(os.path.dirname(P) or ".", "stage_history.jsonl"),
+)
+_stage_hist = {}   # id -> {"current": label, "history": [{stage,ts}, ...]}
+if os.path.exists(_STAGE_HIST_PATH):
+    with open(_STAGE_HIST_PATH, encoding="utf-8") as _fh:
+        for _line in _fh:
+            _line = _line.strip()
+            if not _line:
+                continue
+            try:
+                _obj = json.loads(_line)
+            except Exception:
+                continue
+            _rid = str(_obj.get("id") or "").strip()
+            if _rid:
+                _stage_hist[_rid] = _obj
+    print(f"Stage history loaded: {len(_stage_hist)} investments from {_STAGE_HIST_PATH}")
+else:
+    print(f"Stage history NOT FOUND at {_STAGE_HIST_PATH} — Weekly Stats history will be empty. "
+          "Fetch step needs to run first (fetch_hubspot.py writes this file alongside the CSV).")
+
+# Canonical pipeline order (lowercased labels, matches stage_of()).
+# Positions in this list define "stage ≤ current" comparisons.
+_PIPELINE_ORDER = [
+    "pending",
+    "forms out",
+    "written (processed form)",
+    "money received",
+    "project live",
+]
+_PIPELINE_INDEX = {s: i for i, s in enumerate(_PIPELINE_ORDER)}
+
+# Stages that indicate an investment should be EXCLUDED entirely (terminal
+# non-live states). Anything whose current stage matches these is dropped.
+_TERMINAL_NON_LIVE = {
+    "ntu", "cancelled", "canceled", "project ended", "project ended (rollover)",
+    "allocated",  # "allocated" appears in the pipeline but isn't part of the money-flow path
+}
+
 _WEEKLY_WRITTEN_STAGES = {"written (processed form)", "money received", "project live"}
 _WEEKLY_NAME_EXCLUDE   = ("rollover", "extension", "takeover")
 
@@ -683,41 +732,137 @@ def _weekly_name_ok(r):
     n = (r.get("Name", "") or "").lower()
     return not any(tok in n for tok in _WEEKLY_NAME_EXCLUDE)
 
-def _weekly_in_window(dt):
-    return dt is not None and _wk_monday <= dt <= _wk_sunday_end
+def _parse_iso_ts(s):
+    """Parse HubSpot ISO timestamp (may end with Z). Returns naive datetime
+    in UTC-equivalent local wallclock — fine for week-bucket comparisons
+    because week boundaries are also naive. If HubSpot returned +00:00, we
+    strip tz for consistency with the rest of the aggregator."""
+    if not s:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if dt.tzinfo is not None:
+        dt = dt.replace(tzinfo=None)
+    return dt
 
-_wk_by_project = defaultdict(lambda: {"pledged": 0.0, "written": 0.0})
-for r in rows:
-    if not _weekly_name_ok(r):
-        continue
-    proj = g(r, "Investment Project") or "(blank)"
-    amt  = num(r.get("Investment")) or 0.0
-    stage = stage_of(r)
-    if stage in _WEEKLY_PLEDGED_STAGES:
-        if _weekly_in_window(parse_date(r.get("Forms Out Date"))):
-            _wk_by_project[proj]["pledged"] += amt
-    if stage in _WEEKLY_WRITTEN_STAGES:
-        if _weekly_in_window(parse_date(r.get("Written Date"))):
-            _wk_by_project[proj]["written"] += amt
+def _first_entry_per_stage(record_id):
+    """Return {stage_label: first_entry_datetime} for an investment, applying
+    the current-stage safety cap and first-entry-per-stage rule. Returns None
+    if the investment should be excluded entirely (terminal-non-live or not
+    in the pipeline order)."""
+    obj = _stage_hist.get(str(record_id))
+    if not obj:
+        return None
+    current = (obj.get("current") or "").strip().lower()
+    if current in _TERMINAL_NON_LIVE:
+        return None
+    if current not in _PIPELINE_INDEX:
+        # Unknown stage (or empty) — skip. Better than silently mis-attributing.
+        return None
+    cap = _PIPELINE_INDEX[current]
+    firsts = {}
+    for ev in obj.get("history", []):
+        stage = (ev.get("stage") or "").strip().lower()
+        if stage not in _PIPELINE_INDEX:
+            continue
+        if _PIPELINE_INDEX[stage] > cap:
+            # Ignore clicks past current stage (correction of an accidental jump).
+            continue
+        ts = _parse_iso_ts(ev.get("ts"))
+        if ts is None:
+            continue
+        if stage not in firsts or ts < firsts[stage]:
+            firsts[stage] = ts
+    return firsts
 
-_weekly_new_money_rows = [
-    {"project": p, "pledged": round(v["pledged"], 2), "written": round(v["written"], 2)}
-    for p, v in _wk_by_project.items()
-    if v["pledged"] > 0 or v["written"] > 0
-]
-_weekly_new_money_rows.sort(key=lambda x: x["project"].lower())
+# Precompute first-entry timeline for every investment ONCE (avoid re-walking
+# history for each of the 13 weeks). Also index by Record ID -> row so we can
+# look up project / name / amount without another loop per week.
+_rows_by_id = {}
+for _r in rows:
+    _rid = (_r.get("Record ID") or "").strip()
+    if _rid:
+        _rows_by_id[_rid] = _r
 
+_investment_events = {}   # record_id -> {stage: first_entry_dt}
+for _rid in _rows_by_id:
+    _ev = _first_entry_per_stage(_rid)
+    if _ev:
+        _investment_events[_rid] = _ev
+
+# ---- Week window helpers ---------------------------------------------------
+_wk_now_naive = NOW.replace(tzinfo=None) if getattr(NOW, "tzinfo", None) else NOW
+_this_monday = (_wk_now_naive - _wtd(days=_wk_now_naive.weekday())).replace(
+    hour=0, minute=0, second=0, microsecond=0
+)
+_WEEKS_BACK = 12   # current week + 12 prior = 13 total
+
+def _week_bounds(monday_dt):
+    end = monday_dt + _wtd(days=6, hours=23, minutes=59, seconds=59, microseconds=999999)
+    return monday_dt, end
+
+def _compute_week(monday_dt):
+    wk_start, wk_end = _week_bounds(monday_dt)
+    by_project = defaultdict(lambda: {"pledged": 0.0, "written": 0.0})
+    for rid, evs in _investment_events.items():
+        r = _rows_by_id.get(rid)
+        if r is None or not _weekly_name_ok(r):
+            continue
+        amt = num(r.get("Investment")) or 0.0
+        if amt == 0.0:
+            continue
+        proj = g(r, "Investment Project") or "(blank)"
+        # Did any "written-tier" stage first-enter within this week?
+        written_hit = any(
+            (stg in _WEEKLY_WRITTEN_STAGES) and (wk_start <= evs[stg] <= wk_end)
+            for stg in evs
+        )
+        if written_hit:
+            by_project[proj]["written"] += amt
+            continue
+        # No written-tier hit — was Forms Out first-entered this week?
+        fo_dt = evs.get("forms out")
+        if fo_dt is not None and wk_start <= fo_dt <= wk_end:
+            by_project[proj]["pledged"] += amt
+    week_rows = [
+        {"project": p, "pledged": round(v["pledged"], 2), "written": round(v["written"], 2)}
+        for p, v in by_project.items()
+        if v["pledged"] > 0 or v["written"] > 0
+    ]
+    week_rows.sort(key=lambda x: x["project"].lower())
+    return {
+        "week_start": wk_start.date().isoformat(),
+        "week_end":   wk_end.date().isoformat(),
+        "new_money":  week_rows,
+    }
+
+_weekly_history = []
+for _i in range(_WEEKS_BACK + 1):    # 0..12 = current back to 12 weeks ago
+    _mon = _this_monday - _wtd(weeks=_i)
+    _weekly_history.append(_compute_week(_mon))
+
+# Keep top-level shape backward-compatible for the current-week table (front-end
+# already reads week_start / week_end / new_money). Add "history" for the
+# picker. Current week is _weekly_history[0].
+_this_week = _weekly_history[0]
 weekly_stats = {
-    "week_start": _wk_monday.date().isoformat(),
-    "week_end":   (_wk_sunday_end).date().isoformat(),
-    "new_money":  _weekly_new_money_rows,
+    "week_start": _this_week["week_start"],
+    "week_end":   _this_week["week_end"],
+    "new_money":  _this_week["new_money"],
+    "history":    _weekly_history,   # newest first, 13 entries
 }
-print("Weekly Stats (%s -> %s): %d project rows (pledged \u00a3%.0f, written \u00a3%.0f)" % (
-    weekly_stats["week_start"], weekly_stats["week_end"],
-    len(_weekly_new_money_rows),
-    sum(r["pledged"] for r in _weekly_new_money_rows),
-    sum(r["written"] for r in _weekly_new_money_rows),
-))
+print(
+    "Weekly Stats: %d weeks computed (this week %s -> %s: %d rows, pledged \u00a3%.0f, written \u00a3%.0f)"
+    % (
+        len(_weekly_history),
+        _this_week["week_start"], _this_week["week_end"],
+        len(_this_week["new_money"]),
+        sum(r["pledged"] for r in _this_week["new_money"]),
+        sum(r["written"] for r in _this_week["new_money"]),
+    )
+)
 
 out={
  "generated_at": NOW.isoformat(),

@@ -5,6 +5,10 @@ scripts/dashboard_data_v2.json
 # The dashboard only needs the aggregated figures baked into docs/index.html.
 data/*.csv
 
+# Pipeline-stage history sidecar written by scripts/fetch_hubspot.py.
+# Contains investment IDs + stage transitions with timestamps; regenerated every run.
+data/*.jsonl
+
 # Python / macOS / editor cruft
 __pycache__/
 *.pyc

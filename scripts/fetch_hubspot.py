@@ -155,15 +155,15 @@ HISTORY_PROPS = ["hs_pipeline_stage"]
 def fetch_all(props):
     """Page by hs_object_id cursor to retrieve every record.
 
-    Also captures pipeline-stage transition history (HISTORY_PROPS) so the
-    aggregator can reconstruct historical weekly activity.
+    Note: /crm/v3/objects/{type}/search silently IGNORES
+    `propertiesWithHistory`. History is fetched separately via
+    `fetch_history_batch()` below (batch-read endpoint).
     """
     out, seen, last_id = [], set(), 0
     while True:
         body = {
             "limit": PAGE_SIZE,
             "properties": props,
-            "propertiesWithHistory": HISTORY_PROPS,
             "sorts": [{"propertyName": "hs_object_id", "direction": "ASCENDING"}],
             "filterGroups": [{"filters": [
                 {"propertyName": "hs_object_id", "operator": "GT", "value": str(last_id)}
@@ -182,6 +182,45 @@ def fetch_all(props):
         sys.stderr.write(f"  fetched {len(out)} (last id {last_id})\n")
         if len(res) < PAGE_SIZE:
             break
+        time.sleep(0.15)
+    return out
+
+
+def fetch_history_batch(ids, history_props=HISTORY_PROPS, batch_size=100):
+    """Fetch property history for a list of record IDs.
+
+    The Search API ignores `propertiesWithHistory`; the batch-read endpoint
+    honours it. Returns {id: [{value, timestamp, ...}, ...]} for the FIRST
+    property in `history_props` (we only pass hs_pipeline_stage in practice,
+    so a flat dict keeps the caller simple).
+    """
+    out = {}
+    total = len(ids)
+    if not total:
+        return out
+    n_batches = (total + batch_size - 1) // batch_size
+    for i in range(0, total, batch_size):
+        chunk = ids[i:i + batch_size]
+        body = {
+            "propertiesWithHistory": history_props,
+            "properties": [],  # we only want history; skip current values
+            "inputs": [{"id": rid} for rid in chunk],
+        }
+        d = _req("POST", f"/crm/v3/objects/{OBJECT_TYPE}/batch/read", body)
+        for r in d.get("results", []):
+            rid = r.get("id")
+            if not rid:
+                continue
+            hist_map = r.get("propertiesWithHistory", {}) or {}
+            # Only the first history prop is used downstream (hs_pipeline_stage).
+            out[rid] = hist_map.get(history_props[0], []) or []
+        # Progress every 10 batches to keep the log readable.
+        if ((i // batch_size) + 1) % 10 == 0 or (i + batch_size) >= total:
+            done = min(i + batch_size, total)
+            sys.stderr.write(
+                f"  history fetched {done}/{total} "
+                f"({(i // batch_size) + 1}/{n_batches} batches)\n"
+            )
         time.sleep(0.15)
     return out
 
@@ -209,6 +248,25 @@ def main():
     sys.stderr.write(f"Fetching all records ({len(props)} properties)...\n")
     records = fetch_all(props)
     sys.stderr.write(f"Total records: {len(records)}\n")
+
+    # -------- Pipeline-stage transition history (separate pass) --------
+    # /objects/{type}/search silently ignores `propertiesWithHistory`, so we
+    # have to re-read each record via /batch/read to get the history. We
+    # attach the result onto each Search record under the same
+    # `propertiesWithHistory` key the sidecar writer already expects.
+    sys.stderr.write(
+        f"Fetching pipeline-stage history for {len(records)} records...\n"
+    )
+    hist_by_id = fetch_history_batch([r["id"] for r in records])
+    n_with_hist = 0
+    for rec in records:
+        h = hist_by_id.get(rec["id"])
+        if h:
+            n_with_hist += 1
+        rec["propertiesWithHistory"] = {"hs_pipeline_stage": h or []}
+    sys.stderr.write(
+        f"  {n_with_hist}/{len(records)} records had ≥1 stage-history event\n"
+    )
 
     headers = [c for c, _ in COLUMN_MAP]
     if DUPLICATE_DEVELOPER:

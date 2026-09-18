@@ -747,50 +747,103 @@ def _parse_iso_ts(s):
         dt = dt.replace(tzinfo=None)
     return dt
 
-def _first_entry_per_stage(record_id):
-    """Return {stage_label: first_entry_datetime} for an investment, applying
-    the current-stage safety cap and first-entry-per-stage rule. Returns None
-    if the investment should be excluded entirely (terminal-non-live or not
-    in the pipeline order)."""
-    obj = _stage_hist.get(str(record_id))
-    if not obj:
-        return None
-    current = (obj.get("current") or "").strip().lower()
-    if current in _TERMINAL_NON_LIVE:
-        return None
-    if current not in _PIPELINE_INDEX:
-        # Unknown stage (or empty) — skip. Better than silently mis-attributing.
-        return None
-    cap = _PIPELINE_INDEX[current]
+def _first_entry_per_stage_at(events, as_of_dt):
+    """Return {stage_label: first_entry_datetime} for a pre-parsed event list,
+    treating the pipeline stage AS OF `as_of_dt` (Sunday 23:59 of that week,
+    or NOW for the current week) as the effective current-stage cap.
+
+    Two layered rules:
+
+    1. **Point-in-time cap.** Stages the record was set to AFTER as_of_dt
+       don't exist for this snapshot. And a stage recorded at or before
+       as_of_dt that is HIGHER than the record's effective stage at as_of_dt
+       is a click-ahead that was reverted before as_of_dt — ignore it.
+
+    2. **Click-and-revert cleanup within the window.** Even when the cap
+       allows a stage entry through (because the record later legitimately
+       progresses past it), any entry followed immediately by a LOWER stage
+       entry in the surviving in-window sequence is an accidental click that
+       got manually corrected on the spot. Drop those iteratively. This
+       stops an intraday mis-click from being treated as the "first crossing"
+       even in weeks where the record has since progressed for real.
+
+    Rationale: historical weeks should reflect what the CRM said at the end
+    of that week, without accidental clicks leaking through as spurious
+    first-crossings. Legitimate late corrections (real revert days or weeks
+    later, not part of an on-the-spot fix) are NOT dropped because they'll
+    be separated by other events in the sequence.
+
+    `events` is a pre-parsed and time-sorted list of (ts, stage) tuples with
+    stages restricted to _PIPELINE_INDEX. Returns {} if no events fall on or
+    before as_of_dt (i.e. the investment didn't exist yet).
+    """
+    # Restrict to events at or before the snapshot moment.
+    in_window = [(ts, stg) for ts, stg in events if ts <= as_of_dt]
+    if not in_window:
+        return {}
+    # Effective stage at as_of_dt = the LAST entry at or before that moment.
+    effective_stage = in_window[-1][1]
+    if effective_stage not in _PIPELINE_INDEX:
+        return {}
+    cap = _PIPELINE_INDEX[effective_stage]
+    # Apply cap first.
+    capped = [(ts, stg) for ts, stg in in_window if _PIPELINE_INDEX[stg] <= cap]
+    # Iteratively drop any entry whose stage is higher than the very next
+    # entry — click-ahead-then-revert. Because the sequence is time-sorted
+    # (stable), the revert entry follows the accidental click.
+    changed = True
+    while changed and capped:
+        changed = False
+        cleaned = []
+        i = 0
+        while i < len(capped):
+            if i + 1 < len(capped) and \
+               _PIPELINE_INDEX[capped[i][1]] > _PIPELINE_INDEX[capped[i + 1][1]]:
+                changed = True
+                i += 1
+                continue
+            cleaned.append(capped[i])
+            i += 1
+        capped = cleaned
     firsts = {}
-    for ev in obj.get("history", []):
-        stage = (ev.get("stage") or "").strip().lower()
-        if stage not in _PIPELINE_INDEX:
-            continue
-        if _PIPELINE_INDEX[stage] > cap:
-            # Ignore clicks past current stage (correction of an accidental jump).
-            continue
-        ts = _parse_iso_ts(ev.get("ts"))
-        if ts is None:
-            continue
+    for ts, stage in capped:
         if stage not in firsts or ts < firsts[stage]:
             firsts[stage] = ts
     return firsts
 
-# Precompute first-entry timeline for every investment ONCE (avoid re-walking
-# history for each of the 13 weeks). Also index by Record ID -> row so we can
-# look up project / name / amount without another loop per week.
+
+# Precompute the parsed, sorted event list for each investment ONCE. Terminal
+# non-live records (NTU / cancelled / project ended / project ended (rollover)
+# / allocated) are excluded up-front per Djinh's spec: "deleted / NTU /
+# cancelled retroactively excluded from ALL weeks" — those really are records
+# that should never have counted, even in earlier weeks.
 _rows_by_id = {}
 for _r in rows:
     _rid = (_r.get("Record ID") or "").strip()
     if _rid:
         _rows_by_id[_rid] = _r
 
-_investment_events = {}   # record_id -> {stage: first_entry_dt}
+_investment_events = {}   # record_id -> [(ts, stage), ...] time-sorted
 for _rid in _rows_by_id:
-    _ev = _first_entry_per_stage(_rid)
-    if _ev:
-        _investment_events[_rid] = _ev
+    _obj = _stage_hist.get(_rid)
+    if not _obj:
+        continue
+    _current = (_obj.get("current") or "").strip().lower()
+    if _current in _TERMINAL_NON_LIVE:
+        # Retroactive exclusion regardless of week.
+        continue
+    _parsed = []
+    for _ev in _obj.get("history", []):
+        _stg = (_ev.get("stage") or "").strip().lower()
+        if _stg not in _PIPELINE_INDEX:
+            continue
+        _ts = _parse_iso_ts(_ev.get("ts"))
+        if _ts is None:
+            continue
+        _parsed.append((_ts, _stg))
+    _parsed.sort(key=lambda e: e[0])
+    if _parsed:
+        _investment_events[_rid] = _parsed
 
 # ---- Week window helpers ---------------------------------------------------
 _wk_now_naive = NOW.replace(tzinfo=None) if getattr(NOW, "tzinfo", None) else NOW
@@ -805,26 +858,42 @@ def _week_bounds(monday_dt):
 
 def _compute_week(monday_dt):
     wk_start, wk_end = _week_bounds(monday_dt)
+    # Point-in-time snapshot moment: end-of-week for closed weeks, or NOW for
+    # the current in-progress week (there's no "end of week" yet).
+    as_of = min(wk_end, _wk_now_naive)
+    # If the whole week is in the future (shouldn't happen with _WEEKS_BACK
+    # counting backwards, but be defensive), skip.
+    if as_of < wk_start:
+        return {
+            "week_start": wk_start.date().isoformat(),
+            "week_end":   wk_end.date().isoformat(),
+            "new_money":  [],
+        }
     by_project = defaultdict(lambda: {"pledged": 0.0, "written": 0.0})
-    for rid, evs in _investment_events.items():
+    for rid, ev_list in _investment_events.items():
         r = _rows_by_id.get(rid)
         if r is None or not _weekly_name_ok(r):
             continue
         amt = num(r.get("Investment")) or 0.0
         if amt == 0.0:
             continue
+        # Point-in-time first-entry-per-stage using end-of-week snapshot.
+        evs = _first_entry_per_stage_at(ev_list, as_of)
+        if not evs:
+            continue
         proj = g(r, "Investment Project") or "(blank)"
-        # Written = the week the investment FIRST crossed into any written-tier
-        # stage. Subsequent progressions (Written -> Money Received -> Project
-        # Live) must NOT retrigger the Written count in the later week.
+        # Written = the week the investment FIRST crossed into any
+        # written-tier stage. Subsequent progressions must NOT retrigger
+        # Written in the later week.
         _wt_times = [evs[s] for s in _WEEKLY_WRITTEN_STAGES if s in evs]
         first_written_dt = min(_wt_times) if _wt_times else None
         if first_written_dt is not None and wk_start <= first_written_dt <= wk_end:
             by_project[proj]["written"] += amt
             continue
-        # Not the "first-crossed-written" week for this investment. Was Forms
-        # Out first-entered this week? (Pledged only if not further along in
-        # the same week — the check above already handled that case.)
+        # Not first-crossed-written this week. Was Forms Out first-entered
+        # this week (as of the snapshot moment)? Investments that are still
+        # at Forms Out at the snapshot count as Pledged; investments that
+        # have progressed to Written+ this week are already handled above.
         fo_dt = evs.get("forms out")
         if fo_dt is not None and wk_start <= fo_dt <= wk_end:
             by_project[proj]["pledged"] += amt

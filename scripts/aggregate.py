@@ -676,8 +676,10 @@ else:
 #      NTU / cancelled / project ended / project ended (rollover) is dropped
 #      from ALL weeks. Deleted investments are already excluded by the
 #      fetch (search API excludes archived by default).
-#   4. Name exclusion (rollover / extension / takeover) still applies on
-#      current Name. Rollover reporting will get its own table later.
+#   4. Name split on current Name (substring, case-insensitive):
+#        new_money = Name contains none of rollover / extension / takeover
+#        rollovers = Name contains rollover or extension
+#      Same Pledged/Written logic for both tables. Takeovers are in neither.
 #
 # Historical scope: current week + 12 previous weeks (13 total), newest first.
 # Week window: Monday 00:00:00 —> Sunday 23:59:59.999999 UK time.
@@ -728,9 +730,23 @@ _TERMINAL_NON_LIVE = {
 _WEEKLY_WRITTEN_STAGES = {"written (processed form)", "money received", "project live"}
 _WEEKLY_NAME_EXCLUDE   = ("rollover", "extension", "takeover")
 
+_WEEKLY_ROLLOVER_TOKENS = ("rollover", "extension")
+
 def _weekly_name_ok(r):
     n = (r.get("Name", "") or "").lower()
     return not any(tok in n for tok in _WEEKLY_NAME_EXCLUDE)
+
+def _weekly_bucket(r):
+    """Which Weekly Stats table an investment belongs to, by Name.
+    'rollovers' = Name contains Rollover or Extension.
+    'new_money' = Name contains none of Rollover / Extension / Takeover.
+    None        = anything else (e.g. Takeover) -> in neither table."""
+    n = (r.get("Name", "") or "").lower()
+    if any(tok in n for tok in _WEEKLY_ROLLOVER_TOKENS):
+        return "rollovers"
+    if _weekly_name_ok(r):
+        return "new_money"
+    return None
 
 def _parse_iso_ts(s):
     """Parse HubSpot ISO timestamp (may end with Z). Returns naive datetime
@@ -868,12 +884,21 @@ def _compute_week(monday_dt):
             "week_start": wk_start.date().isoformat(),
             "week_end":   wk_end.date().isoformat(),
             "new_money":  [],
+            "rollovers":  [],
         }
-    by_project = defaultdict(lambda: {"pledged": 0.0, "written": 0.0})
+    # Two tables, same logic: bucket -> project -> {pledged, written}
+    by_bucket = {
+        "new_money": defaultdict(lambda: {"pledged": 0.0, "written": 0.0}),
+        "rollovers": defaultdict(lambda: {"pledged": 0.0, "written": 0.0}),
+    }
     for rid, ev_list in _investment_events.items():
         r = _rows_by_id.get(rid)
-        if r is None or not _weekly_name_ok(r):
+        if r is None:
             continue
+        bucket = _weekly_bucket(r)
+        if bucket is None:
+            continue
+        by_project = by_bucket[bucket]
         amt = num(r.get("Investment")) or 0.0
         if amt == 0.0:
             continue
@@ -897,16 +922,19 @@ def _compute_week(monday_dt):
         fo_dt = evs.get("forms out")
         if fo_dt is not None and wk_start <= fo_dt <= wk_end:
             by_project[proj]["pledged"] += amt
-    week_rows = [
-        {"project": p, "pledged": round(v["pledged"], 2), "written": round(v["written"], 2)}
-        for p, v in by_project.items()
-        if v["pledged"] > 0 or v["written"] > 0
-    ]
-    week_rows.sort(key=lambda x: x["project"].lower())
+    def _rows_of(bp):
+        out_rows = [
+            {"project": p, "pledged": round(v["pledged"], 2), "written": round(v["written"], 2)}
+            for p, v in bp.items()
+            if v["pledged"] > 0 or v["written"] > 0
+        ]
+        out_rows.sort(key=lambda x: x["project"].lower())
+        return out_rows
     return {
         "week_start": wk_start.date().isoformat(),
         "week_end":   wk_end.date().isoformat(),
-        "new_money":  week_rows,
+        "new_money":  _rows_of(by_bucket["new_money"]),
+        "rollovers":  _rows_of(by_bucket["rollovers"]),
     }
 
 _weekly_history = []
@@ -922,16 +950,20 @@ weekly_stats = {
     "week_start": _this_week["week_start"],
     "week_end":   _this_week["week_end"],
     "new_money":  _this_week["new_money"],
+    "rollovers":  _this_week["rollovers"],
     "history":    _weekly_history,   # newest first, 13 entries
 }
 print(
-    "Weekly Stats: %d weeks computed (this week %s -> %s: %d rows, pledged \u00a3%.0f, written \u00a3%.0f)"
+    "Weekly Stats: %d weeks computed (this week %s -> %s: new money %d rows, pledged \u00a3%.0f, written \u00a3%.0f; rollovers %d rows, pledged \u00a3%.0f, written \u00a3%.0f)"
     % (
         len(_weekly_history),
         _this_week["week_start"], _this_week["week_end"],
         len(_this_week["new_money"]),
         sum(r["pledged"] for r in _this_week["new_money"]),
         sum(r["written"] for r in _this_week["new_money"]),
+        len(_this_week["rollovers"]),
+        sum(r["pledged"] for r in _this_week["rollovers"]),
+        sum(r["written"] for r in _this_week["rollovers"]),
     )
 )
 

@@ -74,7 +74,8 @@
           ? 'started ' + gbp(v.started_total) + ' + money received ' + gbp(v.money_received_total)
           : 'started ' + gbp(v.started_total);
         heroNote = (state.mode === 'monthly' ? 'Monthly requirement ' : 'Raising requirement ') + gbp(req) +
-          ' · ' + raisedPart + ' (' + Math.round((v.pct || 0) * 100) + '%)';
+          ' · ' + raisedPart + ' (' + Math.round((v.pct || 0) * 100) + '%)' +
+          (v.bullet_total != null ? ' · Bullet ' + gbp(v.bullet_total) + ' · Quarterly ' + gbp(v.quarterly_total) : '');
       }
       var fillPct = 0, mrPct = 0;
       if (req > 0) {

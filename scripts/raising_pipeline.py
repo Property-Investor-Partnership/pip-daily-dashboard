@@ -37,6 +37,10 @@ Rules (agreed with Djinh, Oct 2026):
   * Pipeline figure = Pending + Forms Out + Written + Money Received
     (takeovers included), split B = Payout Type contains "bullet",
     Q = Payout Type contains "quarterly" (v1.1.0).
+  * Main box sub stat adds Bullet / Quarterly totals of the same
+    investments the box counts: total view = started; monthly view = started
+    this month + money received (flagged rows removed). Takeovers excluded
+    (v1.2.0).
   * include_rows=False (main dashboard) leaves every investment name, record
     id and adviser out of the data; stages carry New Money / Rollover /
     Takeover totals and counts only (v1.1.0).
@@ -47,7 +51,7 @@ import re
 from collections import defaultdict
 from datetime import datetime
 
-CORE_VERSION = "1.1.0"
+CORE_VERSION = "1.2.0"
 
 HUBSPOT_PORTAL = "146042580"
 INVESTMENT_OBJECT = "2-143899386"
@@ -244,6 +248,9 @@ def compute_project(rows, companies, now, cfg, include_rows=True):
         "new_money_total": nm_total, "new_money_count": nm_count,
         "rollover_total": ro_total, "rollover_count": ro_count,
         "money_received_total": mr_total, "money_received_count": mr_count,
+        # v1.2.0: payout split of the same investments the hero counts.
+        "bullet_total": summ([i for i in st if i["payout"] == "bullet"])[0],
+        "quarterly_total": summ([i for i in st if i["payout"] == "quarterly"])[0],
         "left_to_raise": _r2(req_total - st_total),
         "pct": (st_total / req_total) if req_total > 0 else None,
     }
@@ -262,6 +269,9 @@ def compute_project(rows, companies, now, cfg, include_rows=True):
         "new_money_total": m_nm_total, "new_money_count": m_nm_count,
         "rollover_total": m_ro_total, "rollover_count": m_ro_count,
         "money_received_total": m_mr_total, "money_received_count": m_mr_count,
+        # v1.2.0: monthly hero counts started this month + money received.
+        "bullet_total": summ([i for i in m_st + m_mr if i["payout"] == "bullet"])[0],
+        "quarterly_total": summ([i for i in m_st + m_mr if i["payout"] == "quarterly"])[0],
         "left_to_raise": _r2(req_month - m_total - m_mr_total),
         "pct": ((m_total + m_mr_total) / req_month) if req_month > 0 else None,
     }

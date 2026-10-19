@@ -1,0 +1,16 @@
+{
+  "_help": [
+    "Projects shown in the Raising & Pipeline tab (project dropdown).",
+    "Leave \"projects\" empty to show every Developer/Project company with a total Raising Requirement > 0.",
+    "To pick specific projects, list them like this:",
+    "  {\"label\": \"Project X\", \"sub_project\": \"Project X Ltd\", \"investment_projects\": [\"Project X Investment\"]}",
+    "For one company with several investment projects, use a contains rule instead of a list:",
+    "  {\"label\": \"SBL Capital\", \"sub_project\": \"SBL Capital Limited\", \"investment_project_contains\": \"SBL Capital\"}",
+    "Names must match HubSpot (capitals and extra spaces are ignored).",
+    "\"match_rules\" apply to the automatic list: they override how a sub project finds its investments."
+  ],
+  "projects": [],
+  "match_rules": {
+    "SBL Capital Limited": {"investment_project_contains": "SBL Capital"}
+  }
+}

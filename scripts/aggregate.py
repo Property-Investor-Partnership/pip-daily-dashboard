@@ -498,14 +498,14 @@ _mr_by_project = defaultdict(lambda: [0.0, 0])    # [sum, count]
 # Emitted as `written_processed_pending` on each project.
 _wp_by_project = defaultdict(lambda: [0.0, 0])    # [sum, count]
 # Lifetime total raised per Investment Project (all-time, since inception).
-# Rule: known Start Date <= today, name excludes Partial Redemption / Takeover.
+# Rule: known Start Date <= today, not NTU, name excludes "Takeover" (Oct 2026).
 # Includes rows regardless of the 'Exclude from this Month's Raising Req' flag
 # (that flag is monthly-scoped only).
 _total_raised_by_project = defaultdict(float)
+_total_raised_old_rule = defaultdict(float)   # pre-Oct-2026 rule, for the log
 # Year of the most recent live investment (Start Date) per project. Used by the
 # "Projects Without a Target" section to let the user filter by completion year.
-# Same eligibility rules as _total_raised_by_project (Partial Redemption /
-# Takeover excluded).
+# Same eligibility rules as _total_raised_by_project (NTU / Takeover excluded).
 _last_completion_year_by_project = {}
 def _excluded_from_raising_req(r):
     """HubSpot flag: 'Exclude from this Month's Raising Req'. True means
@@ -525,11 +525,14 @@ for r in rows:
 
     # Lifetime total raised per project. Runs BEFORE the monthly-exclude
     # filter because this figure is all-time and unaffected by the flag.
-    # Rule: known Start Date <= today, and name excludes
-    # "Partial Redemption" / "Takeover" (case-insensitive substring).
+    # Rule (updated Oct 2026, per Djinh): known Start Date <= today, stage is
+    # not NTU, and name does not contain "Takeover" (case-insensitive).
+    # Partial Redemptions are now INCLUDED.
     if sd and sd.date() <= NOW.date():
         _iname = (r.get("Name") or "").lower()
         if "partial redemption" not in _iname and "takeover" not in _iname:
+            _total_raised_old_rule[proj] += amt   # previous rule, log only
+        if stage_of(r) != "ntu" and "takeover" not in _iname:
             _total_raised_by_project[proj] += amt
             prev_yr = _last_completion_year_by_project.get(proj)
             if prev_yr is None or sd.year > prev_yr:
@@ -556,6 +559,18 @@ for r in rows:
         continue
     _mtd_by_project[proj][0] += amt
     _mtd_by_project[proj][1] += 1
+
+# Log what the Oct 2026 Total Raised rule change moved (NTU now excluded,
+# Partial Redemptions now included). Only projects whose figure changed.
+_tr_changed = sorted(
+    p for p in set(_total_raised_by_project) | set(_total_raised_old_rule)
+    if abs(_total_raised_by_project.get(p, 0) - _total_raised_old_rule.get(p, 0)) >= 0.5
+)
+print("Total Raised rule change (exclude NTU, include Partial Redemptions): %d project(s) changed"
+      % len(_tr_changed))
+for _p in _tr_changed:
+    print("  %s: old \u00a3%.0f -> new \u00a3%.0f" % (
+        _p, _total_raised_old_rule.get(_p, 0), _total_raised_by_project.get(_p, 0)))
 
 raising_progress = {
     "available": False,
@@ -676,6 +691,14 @@ else:
 #      NTU / cancelled / project ended / project ended (rollover) is dropped
 #      from ALL weeks. Deleted investments are already excluded by the
 #      fetch (search API excludes archived by default).
+#   5. Post-start-date cleanup (per Djinh 19 Oct 2026): any Pending, Forms
+#      Out, Written or Money Received stage entry made MORE THAN 30 DAYS after
+#      the investment's CURRENT Start Date (UK calendar date) is ignored. This
+#      catches long-live investments briefly knocked back to a pre-live stage
+#      by mistake. The 30-day buffer keeps genuine late money / paperwork
+#      (mostly rollovers whose start date is the maturity date). Project Live
+#      entries are never ignored; blank or future start dates change nothing.
+#      Start Date comes from the current value, never from property history.
 #   4. Name split on current Name (substring, case-insensitive):
 #        new_money = Name contains none of rollover / extension / takeover
 #        rollovers = Name contains rollover or extension
@@ -839,6 +862,24 @@ for _r in rows:
     if _rid:
         _rows_by_id[_rid] = _r
 
+# ---- Rule 5: ignore pre-live stage entries > 30 days after Start Date -----
+_POST_START_GRACE_DAYS = 30
+_PRE_LIVE_STAGES = {"pending", "forms out", "written (processed form)", "money received"}
+try:
+    from zoneinfo import ZoneInfo as _ZI
+    _UTC, _UK = _ZI("UTC"), _ZI("Europe/London")
+except Exception:   # pragma: no cover - fall back to UTC dates
+    _UTC = _UK = None
+
+def _uk_date(ts_naive_utc):
+    """History timestamps are UTC (tz stripped by _parse_iso_ts). Compare on
+    the UK calendar date so an entry at 00:30 BST lands on the right day."""
+    if _UK is None:
+        return ts_naive_utc.date()
+    return ts_naive_utc.replace(tzinfo=_UTC).astimezone(_UK).date()
+
+_post_start_ignored = []   # (record_id, project, stage, entry_date, start_date)
+
 _investment_events = {}   # record_id -> [(ts, stage), ...] time-sorted
 for _rid in _rows_by_id:
     _obj = _stage_hist.get(_rid)
@@ -848,6 +889,8 @@ for _rid in _rows_by_id:
     if _current in _TERMINAL_NON_LIVE:
         # Retroactive exclusion regardless of week.
         continue
+    _sd = parse_date(_rows_by_id[_rid].get("Start Date"))
+    _cutoff = (_sd.date() + _wtd(days=_POST_START_GRACE_DAYS)) if _sd else None
     _parsed = []
     for _ev in _obj.get("history", []):
         _stg = (_ev.get("stage") or "").strip().lower()
@@ -856,10 +899,24 @@ for _rid in _rows_by_id:
         _ts = _parse_iso_ts(_ev.get("ts"))
         if _ts is None:
             continue
+        # Rule 5. A future start date can't trigger this: an entry can't be
+        # more than 30 days after a date that hasn't happened yet.
+        if _cutoff is not None and _stg in _PRE_LIVE_STAGES and _uk_date(_ts) > _cutoff:
+            _post_start_ignored.append((
+                _rid, g(_rows_by_id[_rid], "Investment Project") or "(blank)",
+                _stg, _uk_date(_ts).isoformat(), _sd.date().isoformat()))
+            continue
         _parsed.append((_ts, _stg))
     _parsed.sort(key=lambda e: e[0])
     if _parsed:
         _investment_events[_rid] = _parsed
+
+print("Weekly Stats rule 5: ignored %d pre-live stage entr%s made >%d days after Start Date"
+      % (len(_post_start_ignored), "y" if len(_post_start_ignored) == 1 else "ies", _POST_START_GRACE_DAYS))
+for _x in sorted(_post_start_ignored, key=lambda x: x[3], reverse=True)[:40]:
+    print("  record %s | %s | %s on %s (start date %s)" % _x)
+if len(_post_start_ignored) > 40:
+    print("  ... and %d more" % (len(_post_start_ignored) - 40))
 
 # ---- Week window helpers ---------------------------------------------------
 _wk_now_naive = NOW.replace(tzinfo=None) if getattr(NOW, "tzinfo", None) else NOW

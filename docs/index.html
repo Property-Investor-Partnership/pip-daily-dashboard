@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Property Investor Partnership — Investments Dashboard</title>
 <script src="chart.umd.min.js"></script>
+<link rel="stylesheet" href="raising-pipeline.css">
+<script src="raising-pipeline.js"></script>
 <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -400,6 +402,7 @@ footer{padding:26px 0;border-top:1px solid var(--border);font-size:12px;color:va
   <button class="tab active" data-tab="overview">Executive Overview</button>
   <button class="tab" data-tab="completions">Completions</button>
   <button class="tab" data-tab="raising">Raising Progress</button>
+  <button class="tab" data-tab="rpipeline">Raising &amp; Pipeline</button>
   <button class="tab" data-tab="weekly">Weekly Stats</button>
   <button class="tab" data-tab="adviserstats">Adviser Stats</button>
   <button class="tab" data-tab="timeline">Project Timeline</button>
@@ -512,6 +515,11 @@ footer{padding:26px 0;border-top:1px solid var(--border);font-size:12px;color:va
     <div id="rpNoTargetEmpty" class="cmp-empty" hidden>No projects match this filter.</div>
   </div>
 </div>
+</section>
+
+<!-- RAISING & PIPELINE (shared module: raising-pipeline.js / .css) -->
+<section class="panel" id="rpipeline">
+<div class="wrap"><div id="rppRoot"></div></div>
 </section>
 
 <!-- WEEKLY STATS -->
@@ -1807,6 +1815,13 @@ tlRender();
   sel.addEventListener('change', ()=>{ currentIdx = parseInt(sel.value, 10) || 0; render(); });
   render();
 })();
+
+// ---- Raising & Pipeline tab (shared module) ----
+if (window.RaisingPipeline && DATA.raising_pipeline) {
+  RaisingPipeline.mount(document.getElementById('rppRoot'), DATA.raising_pipeline, {selectable:true});
+} else {
+  document.getElementById('rppRoot').innerHTML = '<div class="cmp-empty">Raising &amp; Pipeline data will appear after the next refresh.</div>';
+}
 
 document.querySelectorAll('.tab').forEach(t=>{t.addEventListener('click',()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));

@@ -59,6 +59,8 @@ COLUMN_MAP = [
     ("Total Accumulated Interest",    "total_accumulated_interest"),
     ("Estimated Interest Paid",       "estimated_interest_paid"),
     ("Exclude from this Month's Raising Req", "exclude_from_this_months_raising_req"),
+    ("Tranche Number",                "tranche_number_prop"),
+    ("Source Investment Project",     "source_investment_project"),
 ]
 # The export carries a second "Developer" column ("Developer (project)").
 DUPLICATE_DEVELOPER = True

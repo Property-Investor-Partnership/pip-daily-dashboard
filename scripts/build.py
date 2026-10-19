@@ -86,14 +86,15 @@ def parse_now(args):
     return _now_uk()
 
 
-def run(script, csv_path, env):
+def run(script, csv_path, env, tail=4):
     print("  -> " + os.path.basename(script))
     res = subprocess.run([sys.executable, script, csv_path], cwd=HERE, env=env,
                          capture_output=True, text=True)
     if res.returncode != 0:
         print(res.stdout); print(res.stderr)
         fail(os.path.basename(script) + " failed.")
-    for line in res.stdout.strip().splitlines()[-4:]:
+    lines = res.stdout.strip().splitlines()
+    for line in (lines if tail is None else lines[-tail:]):
         print("     " + line)
 
 
@@ -131,8 +132,9 @@ def main():
     env["PIP_NOW"] = now.isoformat()
     env["PIP_JSON"] = JSON_PATH
     env["PIP_CSV"] = csv_path
-    run(os.path.join(HERE, "aggregate.py"), csv_path, env)
+    run(os.path.join(HERE, "aggregate.py"), csv_path, env, tail=None)
     run(os.path.join(HERE, "supplement.py"), csv_path, env)
+    run(os.path.join(HERE, "raising_pipeline_step.py"), csv_path, env, tail=None)
     swap(now)
     print("BUILD OK -> docs/index.html")
 

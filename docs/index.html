@@ -176,6 +176,15 @@ tbody tr:hover{background:var(--surface-alt)}
 .cmp-proj-val{font-size:13.5px;font-weight:700;font-variant-numeric:tabular-nums lining-nums;color:var(--text);flex:none}
 .cmp-empty{padding:40px 0;text-align:center;color:var(--muted);font-size:14px}
 /* ---------- Raising Progress ---------- */
+.rp-controls{display:flex;flex-direction:column;align-items:flex-end;gap:10px;flex-shrink:0}
+.rp-switch{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--muted);user-select:none}
+.rp-switch input{position:absolute;opacity:0;width:1px;height:1px}
+.rp-switch-track{position:relative;width:34px;height:20px;border-radius:999px;background:var(--border);transition:background .15s;flex:none}
+.rp-switch-knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
+.rp-switch input:checked + .rp-switch-track{background:var(--primary)}
+.rp-switch input:checked + .rp-switch-track .rp-switch-knob{transform:translateX(14px)}
+.rp-switch input:focus-visible + .rp-switch-track{outline:2px solid var(--primary);outline-offset:2px}
+.rp-hidden-note{font-size:12.5px;color:var(--muted);margin:0 0 10px}
 .rp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;align-items:start}
 
 /* Option C - paper-tone cards with a coloured top accent strip and status chip.
@@ -356,6 +365,8 @@ footer{padding:26px 0;border-top:1px solid var(--border);font-size:12px;color:va
   .al-controls select{flex:1 1 auto}
   .al-role-pills{flex:1 1 auto;display:flex;gap:8px}
   .al-role-pills .pill{flex:1 1 0;text-align:center}
+  .rp-controls{width:100%;align-items:stretch}
+  .rp-switch{justify-content:flex-start}
   /* league table: drop to 5 cols, tighter padding + slightly smaller type so it fits without scroll */
   .al-league-tbl{font-size:11.5px}
   .al-league-tbl th,.al-league-tbl td{padding:8px 6px}
@@ -489,12 +500,20 @@ footer{padding:26px 0;border-top:1px solid var(--border);font-size:12px;color:va
       <h2 class="cmp-title">Raising Progress</h2>
       <div class="cmp-sub" id="rpSub">Month-to-date capital raised per developer/project vs. monthly target.</div>
     </div>
+    <div class="rp-controls">
     <div class="al-role-pills" id="rpModeToggle" role="tablist" aria-label="Raising Progress view mode" style="flex-shrink:0">
       <button id="rpModeMonthly" class="pill active" type="button" data-mode="monthly">Monthly</button>
       <button id="rpModeTotal" class="pill" type="button" data-mode="total">Total</button>
     </div>
+    <label class="rp-switch" for="rpHideDone">
+      <input type="checkbox" id="rpHideDone">
+      <span class="rp-switch-track" aria-hidden="true"><span class="rp-switch-knob"></span></span>
+      <span class="rp-switch-lbl">Hide £0 left to raise</span>
+    </label>
+    </div>
   </div>
   <div id="rpHero" class="cmp-hero-wrap"></div>
+  <div id="rpHiddenNote" class="rp-hidden-note" hidden></div>
   <div id="rpGrid" class="rp-grid"></div>
   <div id="rpEmpty" class="cmp-empty" hidden>No developer/project companies with a monthly raising requirement.</div>
   <div id="rpLegend" class="rp-legend"></div>
@@ -1392,6 +1411,19 @@ tlRender();
     return 'Lagging'; /* red, orange, yellow */
   };
 
+  /* "Hide £0 left to raise" switch: hides cards whose left-to-raise is £0.
+     Headline totals are unaffected (those cards add £0 to them anyway).
+     Choice is remembered in this browser only. */
+  let rpHideDone=false;
+  try{ rpHideDone=localStorage.getItem('rpHideDone')==='1'; }catch(e){}
+  const hideNoteEl=document.getElementById('rpHiddenNote');
+  function showHiddenNote(n){
+    if(rpHideDone && n>0){
+      hideNoteEl.textContent=`${n} project${n===1?'':'s'} with £0 left to raise hidden.`;
+      hideNoteEl.hidden=false;
+    } else { hideNoteEl.hidden=true; }
+  }
+
   function renderMonthly(){
     subEl.textContent=`Left to raise per developer/project this month (live and money received count toward the target). As at ${RP.day_of_month} / ${RP.days_in_month} in ${RP.month_label}.`;
 
@@ -1409,7 +1441,9 @@ tlRender();
     </div>`;
 
     // Sort monthly view by monthly target, largest first
-    const cards=monthlyCompanies.slice().sort((a,b)=>(b.monthly_target||0)-(a.monthly_target||0));
+    const sortedM=monthlyCompanies.slice().sort((a,b)=>(b.monthly_target||0)-(a.monthly_target||0));
+    const cards=rpHideDone?sortedM.filter(c=>Math.max(0,(c.monthly_target||0)-(c.raised_mtd||0)-(c.money_received_pending||0))>0):sortedM;
+    showHiddenNote(sortedM.length-cards.length);
     gridEl.innerHTML=cards.map((c,i)=>{
       const bucketClass='rp-'+c.bucket;
       const target=c.monthly_target||0;
@@ -1487,7 +1521,9 @@ tlRender();
 
     // Sort total view by total raising requirement, largest first.
     // Only include projects with a known Raising Requirements value.
-    const cards=projectsWithReq.slice().sort((a,b)=>(b.raising_requirement_total||0)-(a.raising_requirement_total||0));
+    const sortedT=projectsWithReq.slice().sort((a,b)=>(b.raising_requirement_total||0)-(a.raising_requirement_total||0));
+    const cards=rpHideDone?sortedT.filter(c=>Math.max(0,(c.raising_requirement_total||0)-(c.total_raised_lifetime||0))>0):sortedT;
+    showHiddenNote(sortedT.length-cards.length);
     gridEl.innerHTML=cards.map((c,i)=>{
       const req=c.raising_requirement_total||0;
       const raised=c.total_raised_lifetime||0;
@@ -1705,6 +1741,13 @@ tlRender();
   }
   rpMonthlyBtn.addEventListener('click',()=>setMode('monthly'));
   rpTotalBtn.addEventListener('click',()=>setMode('total'));
+  const rpHideBox=document.getElementById('rpHideDone');
+  rpHideBox.checked=rpHideDone;
+  rpHideBox.addEventListener('change',()=>{
+    rpHideDone=rpHideBox.checked;
+    try{ localStorage.setItem('rpHideDone', rpHideDone?'1':'0'); }catch(e){}
+    if(rpMode==='total') renderTotal(); else renderMonthly();
+  });
   setMode('monthly');
 })();
 

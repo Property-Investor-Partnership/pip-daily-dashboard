@@ -411,11 +411,34 @@ period_menu=(
     + [{"key":q,"label":q.replace("-Q"," Q"),"type":"quarter"} for q in _qkeys]
     + [{"key":y,"label":y,"type":"year"} for y in _ykeys]
 )
+# Monthly buckets (compact) so the page can build any single month or a
+# from-to month range in the browser. Same "went live" rule as build_league.
+# Shape per role: {"advisers":[name,...], "months":{"YYYY-MM":[[idx,new_sum,new_cnt,roll_sum,roll_cnt],...]}}
+def build_monthly(adviser_field):
+    names=[]; idx={}
+    per=defaultdict(lambda:defaultdict(lambda:[0.0,0,0.0,0]))
+    for r in league_received:
+        d=parse_date(r.get("Start Date"))
+        amt=num(r.get("Investment")) or 0
+        if amt<=0: continue
+        adv=g(r,adviser_field) or "(unassigned)"
+        if adv not in idx: idx[adv]=len(names); names.append(adv)
+        cell=per[f"{d.year}-{d.month:02d}"][idx[adv]]
+        if is_rollover(r): cell[2]+=amt; cell[3]+=1
+        else:              cell[0]+=amt; cell[1]+=1
+    return {"advisers":names,
+            "months":{m:[[i,round(c[0],2),c[1],round(c[2],2),c[3]] for i,c in sorted(v.items())]
+                      for m,v in sorted(per.items())}}
+_mkeys=sorted({f"{parse_date(r.get('Start Date')).year}-{parse_date(r.get('Start Date')).month:02d}"
+               for r in league_received}, reverse=True)
 adviser_league={
     "period_menu":period_menu,
     "servicing":build_league("Servicing Adviser"),
     "selling":build_league("Selling Adviser"),
     "default_period":_qkeys[0] if _qkeys else f"{CUR_YEAR}-YTD",
+    "month_keys":_mkeys,   # newest first
+    "monthly":{"servicing":build_monthly("Servicing Adviser"),
+               "selling":build_monthly("Selling Adviser")},
 }
 
 # ---- NEW project-dependent Developer property (stored, not yet rendered) ----

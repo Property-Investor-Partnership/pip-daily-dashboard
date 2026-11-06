@@ -102,7 +102,20 @@ tbody tr:hover{background:var(--surface-alt)}
 .al-role-pills{display:flex;gap:8px}
 .al-controls select{font:inherit;font-size:14px;padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer}
 /* the league table lives inside the dark-cyan Total Completed box, so it goes white-on-dark */
-.kpi.hero.fum.al-completed.open .al-league-body{max-height:560px;overflow-y:auto}
+/* the league always opens to its full length, however many advisers are listed */
+.kpi.hero.fum.al-completed.open .al-league-body{max-height:none;overflow:visible}
+.al-controls select[hidden],.al-ctl-group[hidden]{display:none}
+#alKpis{align-items:start}
+/* adviser tiers (only coloured when no tier filter is applied) */
+.al-league-tbl td.al-t-top span{color:#FFC553;font-weight:800}
+.al-league-tbl td.al-t-rising span{color:#7FD6DF;font-weight:700}
+.al-league-tbl td.al-t-base span{color:rgba(255,255,255,.78);font-weight:500}
+.al-league-tbl td.al-t-top .bar-fill{background:rgba(255,197,83,.17)}
+.al-league-tbl td.al-t-rising .bar-fill{background:rgba(127,214,223,.22)}
+.al-league-tbl td.al-t-base .bar-fill{background:rgba(255,255,255,.12)}
+.al-tier-key{display:flex;gap:16px;flex-wrap:wrap;padding:10px 12px 8px;font-size:11px;color:rgba(255,255,255,.72);text-transform:uppercase;letter-spacing:.4px;font-weight:600}
+.al-tier-key i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:0}
+.kpi.hero .al-all{font-size:12px;color:rgba(255,255,255,.62);margin-top:3px}
 .al-league-body{padding:0}
 .al-league-tbl{width:100%;border-collapse:collapse;font-size:12.5px;color:#fff}
 .al-league-tbl th{position:sticky;top:0;background:#0a5c63;color:rgba(255,255,255,.82);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;text-align:left;padding:9px 12px;border-bottom:1px solid rgba(255,255,255,.18);z-index:2}
@@ -617,6 +630,24 @@ footer{padding:26px 0;border-top:1px solid var(--border);font-size:12px;color:va
     <div class="al-ctl-group">
       <span class="csub al-ctl-lbl">Period:</span>
       <select id="alPeriod"></select>
+      <select id="alMonth" aria-label="Month" hidden></select>
+    </div>
+    <div class="al-ctl-group al-range" hidden>
+      <span class="csub al-ctl-lbl">From:</span>
+      <select id="alFrom" aria-label="From month"></select>
+    </div>
+    <div class="al-ctl-group al-range" hidden>
+      <span class="csub al-ctl-lbl">To:</span>
+      <select id="alTo" aria-label="To month"></select>
+    </div>
+    <div class="al-ctl-group">
+      <span class="csub al-ctl-lbl">Adviser tier:</span>
+      <select id="alTier">
+        <option value="all">All advisers</option>
+        <option value="top">2.5M+</option>
+        <option value="rising">Rising Stars - £500k to 2.5M</option>
+        <option value="base">&lt;500k</option>
+      </select>
     </div>
     <div class="al-ctl-group">
       <span class="csub al-ctl-lbl">Adviser role:</span>
@@ -1017,16 +1048,77 @@ new Chart(chYear,{type:'bar',data:{labels:B.by_year.map(d=>d.year),datasets:[
 const AL=B.adviser_league;
 let alRole='selling', alPeriodKey=AL.default_period;
 const alSel=document.getElementById('alPeriod');
-AL.period_menu.forEach(p=>{const o=document.createElement('option');o.value=p.key;o.textContent=p.label;alSel.appendChild(o);});
+// Period menu: the fixed periods, plus "Single month" and "Custom range" built
+// from the monthly buckets (AL.monthly) in the browser.
+const AL_MONTHS=(AL.month_keys||[]);              // newest first, 'YYYY-MM'
+const alMonthLbl=k=>{const [y,m]=k.split('-');return new Date(+y,+m-1,1).toLocaleString('en-GB',{month:'short',year:'numeric'});};
+AL.period_menu.forEach((p,i)=>{
+  const o=document.createElement('option');o.value=p.key;o.textContent=p.label;alSel.appendChild(o);
+  if(i===1 && AL_MONTHS.length){   // after "year to date"
+    [['__month','Single month\u2026'],['__range','Custom range (from \u2013 to)\u2026']].forEach(([v,t])=>{
+      const x=document.createElement('option');x.value=v;x.textContent=t;alSel.appendChild(x);});
+  }
+});
 alSel.value=alPeriodKey;
+const alMonthSel=document.getElementById('alMonth'),alFromSel=document.getElementById('alFrom'),
+      alToSel=document.getElementById('alTo'),alRangeEls=document.querySelectorAll('#adviserstats .al-range'),
+      alTierSel=document.getElementById('alTier');
+[alMonthSel,alFromSel,alToSel].forEach(sel=>AL_MONTHS.forEach(k=>{
+  const o=document.createElement('option');o.value=k;o.textContent=alMonthLbl(k);sel.appendChild(o);}));
+if(AL_MONTHS.length){
+  alMonthSel.value=AL_MONTHS[0]; alToSel.value=AL_MONTHS[0];
+  // default range: the start of the current year (or the oldest month) to now
+  const y0=AL_MONTHS[0].slice(0,4)+'-01';
+  alFromSel.value=AL_MONTHS.includes(y0)?y0:AL_MONTHS.filter(k=>k>=y0).slice(-1)[0]||AL_MONTHS[AL_MONTHS.length-1];
+}
+let alTier='all';
+const AL_TIERS={top:'2.5M+',rising:'Rising Stars - \u00a3500k to 2.5M',base:'<500k'};
+function alTierOf(t){return t>=2500000?'top':(t>=500000?'rising':'base');}
+function alFromMonths(keys){
+  const M=(AL.monthly||{})[alRole]||{advisers:[],months:{}};
+  const acc={};
+  keys.forEach(k=>(M.months[k]||[]).forEach(([i,ns,nc,rs,rc])=>{
+    const a=acc[i]||(acc[i]=[0,0,0,0]);a[0]+=ns;a[1]+=nc;a[2]+=rs;a[3]+=rc;}));
+  const rank=Object.keys(acc).map(i=>{const [ns,nc,rs,rc]=acc[i];
+    return {adviser:M.advisers[i],new_money:ns,new_count:nc,rollover:rs,rollover_count:rc,total:ns+rs,count:nc+rc};});
+  rank.sort((a,b)=>b.total-a.total);
+  return alSummary(rank);
+}
+function alSummary(rank){
+  const tn=rank.reduce((s,a)=>s+a.new_money,0),tr=rank.reduce((s,a)=>s+a.rollover,0),t=tn+tr;
+  return {advisers:rank,total:t,total_new:tn,total_rollover:tr,count:rank.reduce((s,a)=>s+a.count,0),
+    new_pct:t?Math.round(1000*tn/t)/10:0,rollover_pct:t?Math.round(1000*tr/t)/10:0};
+}
+function alMonthsInRange(){
+  let a=alFromSel.value,b=alToSel.value; if(a>b){const x=a;a=b;b=x;}
+  return {keys:AL_MONTHS.filter(k=>k>=a&&k<=b),from:a,to:b};
+}
+function alPeriodData(){
+  if(alPeriodKey==='__month') return alFromMonths([alMonthSel.value]);
+  if(alPeriodKey==='__range') return alFromMonths(alMonthsInRange().keys);
+  return AL[alRole][alPeriodKey]||alSummary([]);
+}
+function alPeriodText(){
+  if(alPeriodKey==='__month') return alMonthLbl(alMonthSel.value);
+  if(alPeriodKey==='__range'){const r=alMonthsInRange();return r.from===r.to?alMonthLbl(r.from):alMonthLbl(r.from)+' \u2013 '+alMonthLbl(r.to);}
+  return periodLabel(alPeriodKey);
+}
+function alSyncPeriodUI(){
+  alMonthSel.hidden=alPeriodKey!=='__month';
+  alRangeEls.forEach(el=>el.hidden=alPeriodKey!=='__range');
+}
 const alServBtn=document.getElementById('alServBtn'),alSellBtn=document.getElementById('alSellBtn');
 let alSplitChart=null;
 function periodLabel(k){const m=AL.period_menu.find(p=>p.key===k);return m?m.label:k;}
 const AL_CARET='<svg class="fum-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>';
 function alEsc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function renderLeague(){
-  const data=AL[alRole][alPeriodKey]||{advisers:[],total:0,total_new:0,total_rollover:0,new_pct:0,rollover_pct:0,count:0};
-  const lbl=periodLabel(alPeriodKey);
+  const all=alPeriodData();
+  const lbl=alPeriodText();
+  alSyncPeriodUI();
+  const filtered=alTier!=='all';
+  const data=filtered?alSummary(all.advisers.filter(a=>alTierOf(a.total)===alTier)):all;
+  const share=(part,whole)=>whole?(part/whole*100).toFixed(1)+'%':'0%';
   const roleLbl=alRole==='servicing'?'Servicing':'Selling';
   // preserve open state across re-render
   const wasOpen=!!document.querySelector('#alKpis .kpi.hero.al-completed.open');
@@ -1034,27 +1126,42 @@ function renderLeague(){
   const lrows=data.advisers;
   const lmax=lrows.length?lrows[0].total:1;
   let ltbl='<table class="al-league-tbl"><thead><tr><th class="rank">#</th><th>Adviser</th><th class="num">Total live</th><th class="num">New money</th><th class="num">Rollover</th></tr></thead><tbody>';
-  if(!lrows.length){ltbl+='<tr><td colspan="5" style="text-align:center;color:rgba(255,255,255,.7);padding:18px">No investments went live in this period.</td></tr>';}
+  if(!lrows.length){ltbl+='<tr><td colspan="5" style="text-align:center;color:rgba(255,255,255,.7);padding:18px">'+(filtered&&all.advisers.length?'No advisers in this tier for this period.':'No investments went live in this period.')+'</td></tr>';}
   lrows.forEach((r,i)=>{const pct=(r.total/lmax*100).toFixed(1);
+    const tcls=filtered?'':' al-t-'+alTierOf(r.total);
     ltbl+='<tr><td class="num rank">'+(i+1)+'</td><td>'+alEsc(r.adviser)+'</td>'+
-      '<td class="num bar-cell"><div class="bar-fill" style="width:'+pct+'%"></div><span>'+fmtGBPfull(r.total)+'</span></td>'+
+      '<td class="num bar-cell'+tcls+'"><div class="bar-fill" style="width:'+pct+'%"></div><span>'+fmtGBPfull(r.total)+'</span></td>'+
       '<td class="num">'+fmtGBPfull(r.new_money)+'</td>'+
       '<td class="num">'+fmtGBPfull(r.rollover)+'</td></tr>';});
   ltbl+='</tbody></table>';
+  if(!filtered && lrows.length){
+    ltbl='<div class="al-tier-key"><span><i style="background:#FFC553"></i>2.5M+</span>'+
+      '<span><i style="background:#7FD6DF"></i>Rising Stars \u00a3500k\u20132.5M</span>'+
+      '<span><i style="background:rgba(255,255,255,.78)"></i>&lt;500k</span></div>'+ltbl;
+  }
+  const nAdv=data.advisers.length;
+  const heroLabel=filtered?'Total Completed \u2014 '+alEsc(AL_TIERS[alTier]):'Total Completed';
+  const heroNote=filtered
+    ? fmtN(nAdv)+' adviser'+(nAdv===1?'':'s')+' \u00b7 '+fmtN(data.count)+' investments \u00b7 '+share(data.total,all.total)+' of all advisers \u00b7 '+alEsc(lbl)
+    : fmtN(data.count)+' investments \u00b7 '+alEsc(lbl);
+  const heroAll=filtered?'<div class="al-all">All advisers: '+fmtGBPfull(all.total)+' \u00b7 '+fmtN(all.count)+' investments</div>':'';
   // KPIs: Total Completed = dark-cyan expandable hero box (FUM style) holding the league;
   //       New money + Rollover as two smaller sub-boxes underneath.
   document.getElementById('alKpis').innerHTML=
     '<div class="kpi hero fum al-completed'+(wasOpen?' open':'')+'" role="button" tabindex="0" aria-expanded="'+(wasOpen?'true':'false')+'" style="--accent:#FFC553">'+
       '<div class="fum-head">'+AL_CARET+
-        '<div class="label">Total Completed</div>'+
+        '<div class="label">'+heroLabel+'</div>'+
         '<div class="val">'+fmtGBPfull(data.total)+'</div>'+
-        '<div class="note">'+fmtN(data.count)+' investments · '+alEsc(lbl)+'</div>'+
+        '<div class="note">'+heroNote+'</div>'+heroAll+
         '<div class="fum-hint">Tap to see the '+roleLbl.toLowerCase()+' adviser league</div>'+
       '</div>'+
       '<div class="fum-devs al-league-body">'+ltbl+'</div>'+
     '</div>'+
-    kpi('New money',fmtGBPfull(data.total_new),data.new_pct+'% of the period','#848456')+
-    kpi('Rollover',fmtGBPfull(data.total_rollover),data.rollover_pct+'% of the period','#A84B2F');
+    (filtered
+      ? kpi('New money',fmtGBPfull(data.total_new),share(data.total_new,all.total_new)+' of all advisers\u2019 new money<br>All advisers: '+fmtGBPfull(all.total_new),'#848456')+
+        kpi('Rollover',fmtGBPfull(data.total_rollover),share(data.total_rollover,all.total_rollover)+' of all advisers\u2019 rollover<br>All advisers: '+fmtGBPfull(all.total_rollover),'#A84B2F')
+      : kpi('New money',fmtGBPfull(data.total_new),data.new_pct+'% of the period','#848456')+
+        kpi('Rollover',fmtGBPfull(data.total_rollover),data.rollover_pct+'% of the period','#A84B2F'));
   (function(){
     const box=document.querySelector('#alKpis .kpi.hero.al-completed');
     if(box){
@@ -1074,11 +1181,13 @@ function renderLeague(){
       plugins:{legend:{position:'bottom',labels:{boxWidth:12,padding:14,font:{size:12}}},
         tooltip:{callbacks:{label:(c)=>c.label+': '+fmtGBPfull(c.parsed)+' ('+(data.total?(c.parsed/data.total*100).toFixed(1):0)+'%)'}}}}
   });
-  document.getElementById('alSplitTitle').textContent='New money vs rollover — '+lbl;
+  document.getElementById('alSplitTitle').textContent='New money vs rollover — '+lbl+(filtered?' \u00b7 '+AL_TIERS[alTier]:'');
   alServBtn.classList.toggle('active',alRole==='servicing');
   alSellBtn.classList.toggle('active',alRole==='selling');
 }
 alSel.addEventListener('change',()=>{alPeriodKey=alSel.value;renderLeague();});
+[alMonthSel,alFromSel,alToSel].forEach(sel=>sel.addEventListener('change',renderLeague));
+alTierSel.addEventListener('change',()=>{alTier=alTierSel.value;renderLeague();});
 alServBtn.addEventListener('click',()=>{alRole='servicing';renderLeague();});
 alSellBtn.addEventListener('click',()=>{alRole='selling';renderLeague();});
 renderLeague();

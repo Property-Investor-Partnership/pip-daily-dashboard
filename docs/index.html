@@ -106,6 +106,8 @@ tbody tr:hover{background:var(--surface-alt)}
 .kpi.hero.fum.al-completed.open .al-league-body{max-height:none;overflow:visible}
 .al-controls select[hidden],.al-ctl-group[hidden]{display:none}
 #alKpis{align-items:start}
+/* the "tap to see" hint goes away once the league is open */
+.kpi.hero.fum.al-completed.open .fum-hint{display:none}
 /* adviser tiers (only coloured when no tier filter is applied) */
 .al-league-tbl td.al-t-top span{color:#FFC553;font-weight:800}
 .al-league-tbl td.al-t-rising span{color:#7FD6DF;font-weight:700}
@@ -650,6 +652,13 @@ footer{padding:26px 0;border-top:1px solid var(--border);font-size:12px;color:va
       </select>
     </div>
     <div class="al-ctl-group">
+      <span class="csub al-ctl-lbl">Tiers based on:</span>
+      <div class="al-role-pills" id="alBasisPills">
+        <button id="alBasisYtd" class="pill active" type="button"></button>
+        <button id="alBasisLy" class="pill" type="button"></button>
+      </div>
+    </div>
+    <div class="al-ctl-group">
       <span class="csub al-ctl-lbl">Adviser role:</span>
       <div class="al-role-pills">
         <button id="alServBtn" class="pill">Servicing</button>
@@ -1074,6 +1083,21 @@ if(AL_MONTHS.length){
 let alTier='all';
 const AL_TIERS={top:'2.5M+',rising:'Rising Stars - \u00a3500k to 2.5M',base:'<500k'};
 function alTierOf(t){return t>=2500000?'top':(t>=500000?'rising':'base');}
+// Tier labels are fixed per adviser from a basis period - this year's YTD
+// (default) or last year's full-year total - whatever period is being viewed.
+// The years follow the latest refresh, so in 2027 this becomes 2027 YTD / 2026.
+const AL_YTD_KEY=((AL.period_menu.find(p=>p.type==='ytd')||{}).key)||(new Date().getFullYear()+'-YTD');
+const AL_CUR_YEAR=parseInt(AL_YTD_KEY,10);
+const AL_LY_KEY=String(AL_CUR_YEAR-1);
+let alBasis='ytd';
+const alBasisYtdBtn=document.getElementById('alBasisYtd'),alBasisLyBtn=document.getElementById('alBasisLy');
+alBasisYtdBtn.textContent=AL_CUR_YEAR+' YTD';
+alBasisLyBtn.textContent=AL_LY_KEY;
+function alBasisText(){return alBasis==='ytd'?AL_CUR_YEAR+' YTD':AL_LY_KEY;}
+function alTierMap(){
+  const src=(AL[alRole]||{})[alBasis==='ytd'?AL_YTD_KEY:AL_LY_KEY]||{advisers:[]};
+  const m={}; src.advisers.forEach(a=>{m[a.adviser]=a.total;}); return m;
+}
 function alFromMonths(keys){
   const M=(AL.monthly||{})[alRole]||{advisers:[],months:{}};
   const acc={};
@@ -1117,7 +1141,9 @@ function renderLeague(){
   const lbl=alPeriodText();
   alSyncPeriodUI();
   const filtered=alTier!=='all';
-  const data=filtered?alSummary(all.advisers.filter(a=>alTierOf(a.total)===alTier)):all;
+  const tierTot=alTierMap();
+  const tierOf=a=>alTierOf(tierTot[a.adviser]||0);   // not in the basis period = <500k
+  const data=filtered?alSummary(all.advisers.filter(a=>tierOf(a)===alTier)):all;
   const share=(part,whole)=>whole?(part/whole*100).toFixed(1)+'%':'0%';
   const roleLbl=alRole==='servicing'?'Servicing':'Selling';
   // preserve open state across re-render
@@ -1128,7 +1154,7 @@ function renderLeague(){
   let ltbl='<table class="al-league-tbl"><thead><tr><th class="rank">#</th><th>Adviser</th><th class="num">Total live</th><th class="num">New money</th><th class="num">Rollover</th></tr></thead><tbody>';
   if(!lrows.length){ltbl+='<tr><td colspan="5" style="text-align:center;color:rgba(255,255,255,.7);padding:18px">'+(filtered&&all.advisers.length?'No advisers in this tier for this period.':'No investments went live in this period.')+'</td></tr>';}
   lrows.forEach((r,i)=>{const pct=(r.total/lmax*100).toFixed(1);
-    const tcls=filtered?'':' al-t-'+alTierOf(r.total);
+    const tcls=filtered?'':' al-t-'+tierOf(r);
     ltbl+='<tr><td class="num rank">'+(i+1)+'</td><td>'+alEsc(r.adviser)+'</td>'+
       '<td class="num bar-cell'+tcls+'"><div class="bar-fill" style="width:'+pct+'%"></div><span>'+fmtGBPfull(r.total)+'</span></td>'+
       '<td class="num">'+fmtGBPfull(r.new_money)+'</td>'+
@@ -1137,10 +1163,10 @@ function renderLeague(){
   if(!filtered && lrows.length){
     ltbl='<div class="al-tier-key"><span><i style="background:#FFC553"></i>2.5M+</span>'+
       '<span><i style="background:#7FD6DF"></i>Rising Stars \u00a3500k\u20132.5M</span>'+
-      '<span><i style="background:rgba(255,255,255,.78)"></i>&lt;500k</span></div>'+ltbl;
+      '<span><i style="background:rgba(255,255,255,.78)"></i>&lt;500k</span><span>Based on '+alBasisText()+'</span></div>'+ltbl;
   }
   const nAdv=data.advisers.length;
-  const heroLabel=filtered?'Total Completed \u2014 '+alEsc(AL_TIERS[alTier]):'Total Completed';
+  const heroLabel=filtered?'Total Completed \u2014 '+alEsc(AL_TIERS[alTier])+' ('+alBasisText()+')':'Total Completed';
   const heroNote=filtered
     ? fmtN(nAdv)+' adviser'+(nAdv===1?'':'s')+' \u00b7 '+fmtN(data.count)+' investments \u00b7 '+share(data.total,all.total)+' of all advisers \u00b7 '+alEsc(lbl)
     : fmtN(data.count)+' investments \u00b7 '+alEsc(lbl);
@@ -1188,6 +1214,9 @@ function renderLeague(){
 alSel.addEventListener('change',()=>{alPeriodKey=alSel.value;renderLeague();});
 [alMonthSel,alFromSel,alToSel].forEach(sel=>sel.addEventListener('change',renderLeague));
 alTierSel.addEventListener('change',()=>{alTier=alTierSel.value;renderLeague();});
+function alSetBasis(b){alBasis=b;alBasisYtdBtn.classList.toggle('active',b==='ytd');alBasisLyBtn.classList.toggle('active',b==='ly');renderLeague();}
+alBasisYtdBtn.addEventListener('click',()=>alSetBasis('ytd'));
+alBasisLyBtn.addEventListener('click',()=>alSetBasis('ly'));
 alServBtn.addEventListener('click',()=>{alRole='servicing';renderLeague();});
 alSellBtn.addEventListener('click',()=>{alRole='selling';renderLeague();});
 renderLeague();

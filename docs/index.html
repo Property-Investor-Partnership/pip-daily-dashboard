@@ -105,6 +105,11 @@ tbody tr:hover{background:var(--surface-alt)}
 /* the league always opens to its full length, however many advisers are listed */
 .kpi.hero.fum.al-completed.open .al-league-body{max-height:none;overflow:visible}
 .al-controls select[hidden],.al-ctl-group[hidden]{display:none}
+.al-xs{position:relative}
+.al-xs .mm-filter-btn{font-size:14px;padding:8px 14px;border-radius:10px}
+.al-xs .mm-filter-menu{left:0;right:auto;width:300px}
+.al-league-tbl th .al-th-sub{display:block;font-size:10.5px;font-weight:500;opacity:.75;text-transform:none;letter-spacing:0}
+.al-league-tbl td.al-py{opacity:.85}
 #alKpis{align-items:start}
 /* the "tap to see" hint goes away once the league is open */
 .kpi.hero.fum.al-completed.open .fum-hint{display:none}
@@ -227,7 +232,7 @@ tbody tr:hover{background:var(--surface-alt)}
 .rp-caret{position:absolute;top:16px;right:15px;width:14px;height:14px;color:var(--muted);transition:transform .22s ease;pointer-events:none}
 .rp-card.open .rp-caret{transform:rotate(180deg)}
 .rp-detail{max-height:0;overflow:hidden;transition:max-height .28s ease;background:rgba(40,37,29,.03);border-top:0 solid var(--border)}
-.rp-card.open .rp-detail{max-height:400px;border-top:1px solid var(--border)}
+.rp-card.open .rp-detail{max-height:520px;border-top:1px solid var(--border)}
 .rp-detail-inner{padding:12px 17px 15px;color:var(--text)}
 .rp-detail-row{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:5px 0;border-bottom:1px dashed rgba(40,37,29,.10)}
 .rp-detail-row:last-child{border-bottom:none}
@@ -411,6 +416,12 @@ footer{padding:26px 0;border-top:1px solid var(--border);font-size:12px;color:va
 /* On phones, hint that wide tables scroll sideways */
 @media(max-width:560px){
   .table-scroll{position:relative}
+}
+@media (max-width:600px){
+  .al-tbl-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .al-tbl-scroll.al-many .al-league-tbl th,.al-tbl-scroll.al-many .al-league-tbl td{padding-left:4px;padding-right:4px}
+  .al-tbl-scroll.al-many .al-league-tbl{font-size:11px}
+  .al-tbl-scroll.al-many .al-league-tbl th{font-size:9.5px;letter-spacing:.2px}
 }
 </style>
 </head>
@@ -663,6 +674,14 @@ footer{padding:26px 0;border-top:1px solid var(--border);font-size:12px;color:va
       <div class="al-role-pills">
         <button id="alServBtn" class="pill">Servicing</button>
         <button id="alSellBtn" class="pill active">Selling</button>
+      </div>
+    </div>
+    <div class="al-ctl-group al-xs">
+      <button type="button" id="alXsBtn" class="mm-filter-btn" aria-haspopup="true" aria-expanded="false">Additional Stats <span class="mm-caret">&#9662;</span></button>
+      <div id="alXsMenu" class="mm-filter-menu" hidden>
+        <label class="mm-opt"><input type="checkbox" data-col="new"> New money</label>
+        <label class="mm-opt"><input type="checkbox" data-col="roll"> Rollover</label>
+        <label class="mm-opt"><input type="checkbox" data-col="py"> Total live, same period last year</label>
       </div>
     </div>
   </div>
@@ -1131,6 +1150,47 @@ function alSyncPeriodUI(){
   alMonthSel.hidden=alPeriodKey!=='__month';
   alRangeEls.forEach(el=>el.hidden=alPeriodKey!=='__range');
 }
+// ---- Additional Stats: optional league columns (saved in this browser) ----
+const AL_COLS_DEFAULT={new:true,roll:true,py:false};
+let alCols=Object.assign({},AL_COLS_DEFAULT);
+try{Object.assign(alCols,JSON.parse(localStorage.getItem('alCols')||'{}'));}catch(e){}
+// Same period last year. Finished periods compare with the whole matching
+// period; in-progress ones (this YTD / quarter / month, or a range ending this
+// month) compare with last year up to the same day (server PRIOR-* buckets).
+const AL_ASAT=AL.as_at||(String(DATA.generated_at||'').slice(0,10))||new Date().toISOString().slice(0,10);
+const AL_CUR_MONTH=AL_ASAT.slice(0,7);
+const AL_CUR_Q=AL_ASAT.slice(0,4)+'-Q'+(Math.floor((+AL_ASAT.slice(5,7)-1)/3)+1);
+const alDayTxt=()=>{const d=+AL_ASAT.slice(8,10);const sfx=(d%10===1&&d!==11)?'st':(d%10===2&&d!==12)?'nd':(d%10===3&&d!==13)?'rd':'th';
+  return 'to '+d+sfx+' '+new Date(AL_ASAT+'T12:00:00').toLocaleString('en-GB',{month:'short'});};
+const alMinus12=k=>{let [y,m]=k.split('-').map(Number);return (y-1)+'-'+String(m).padStart(2,'0');};
+function alBucket(k){return ((AL[alRole]||{})[k])||null;}
+function alPriorData(){
+  // returns {data,label} or {data:null,label} when not comparable / not yet available
+  const k=alPeriodKey;
+  const prior=(key,label)=>({data:alBucket(key),label});
+  if(k==='ALL') return {data:null,label:'n/a for all time'};
+  if(k===AL_YTD_KEY||k===String(AL_CUR_YEAR)) return prior('PRIOR-YTD',(AL_CUR_YEAR-1)+' '+alDayTxt());
+  let m=/^(\d{4})-Q(\d)$/.exec(k);
+  if(m){const lbl=(+m[1]-1)+' Q'+m[2];
+    return k===AL_CUR_Q?prior('PRIOR-QTD',lbl+' '+alDayTxt()):prior((+m[1]-1)+'-Q'+m[2],lbl);}
+  if(/^\d{4}$/.test(k)) return prior(String(+k-1),String(+k-1));
+  const fromMonths=(keys,label)=>{
+    // a range ending in the current month uses last year's month-to-date for that month
+    const past=keys.filter(x=>x!==AL_CUR_MONTH).map(alMinus12);
+    const base=alFromMonths(past);
+    if(!keys.includes(AL_CUR_MONTH)) return {data:base,label};
+    const mtd=alBucket('PRIOR-MTD'); if(!mtd) return {data:null,label};
+    const acc={};
+    base.advisers.concat(mtd.advisers).forEach(a=>{const x=acc[a.adviser]||(acc[a.adviser]={adviser:a.adviser,new_money:0,new_count:0,rollover:0,rollover_count:0,total:0,count:0});
+      ['new_money','new_count','rollover','rollover_count','total','count'].forEach(f=>x[f]+=a[f]||0);});
+    return {data:alSummary(Object.values(acc).sort((a,b)=>b.total-a.total)),label};
+  };
+  if(k==='__month'){const mk=alMonthSel.value;
+    return fromMonths([mk],alMonthLbl(alMinus12(mk))+(mk===AL_CUR_MONTH?' '+alDayTxt():''));}
+  if(k==='__range'){const r=alMonthsInRange();const f=alMinus12(r.from),t=alMinus12(r.to);
+    return fromMonths(r.keys,(f===t?alMonthLbl(f):alMonthLbl(f)+' \u2013 '+alMonthLbl(t))+(r.to===AL_CUR_MONTH?' '+alDayTxt():''));}
+  return {data:null,label:'n/a'};
+}
 const alServBtn=document.getElementById('alServBtn'),alSellBtn=document.getElementById('alSellBtn');
 let alSplitChart=null;
 function periodLabel(k){const m=AL.period_menu.find(p=>p.key===k);return m?m.label:k;}
@@ -1151,15 +1211,22 @@ function renderLeague(){
   // league table rows (with new/rollover breakdown) — lives INSIDE the expandable Total Completed box
   const lrows=data.advisers;
   const lmax=lrows.length?lrows[0].total:1;
-  let ltbl='<table class="al-league-tbl"><thead><tr><th class="rank">#</th><th>Adviser</th><th class="num">Total live</th><th class="num">New money</th><th class="num">Rollover</th></tr></thead><tbody>';
-  if(!lrows.length){ltbl+='<tr><td colspan="5" style="text-align:center;color:rgba(255,255,255,.7);padding:18px">'+(filtered&&all.advisers.length?'No advisers in this tier for this period.':'No investments went live in this period.')+'</td></tr>';}
+  const py=alCols.py?alPriorData():null;
+  const pyMap={}; if(py&&py.data) py.data.advisers.forEach(a=>{pyMap[a.adviser]=a.total;});
+  const nCols=3+(alCols.new?1:0)+(alCols.roll?1:0)+(alCols.py?1:0);
+  let ltbl='<table class="al-league-tbl"><thead><tr><th class="rank">#</th><th>Adviser</th><th class="num">Total live</th>'+
+    (alCols.new?'<th class="num">New money</th>':'')+(alCols.roll?'<th class="num">Rollover</th>':'')+
+    (alCols.py?'<th class="num">Total live last year<span class="al-th-sub">'+alEsc(py.label)+'</span></th>':'')+'</tr></thead><tbody>';
+  if(!lrows.length){ltbl+='<tr><td colspan="'+nCols+'" style="text-align:center;color:rgba(255,255,255,.7);padding:18px">'+(filtered&&all.advisers.length?'No advisers in this tier for this period.':'No investments went live in this period.')+'</td></tr>';}
   lrows.forEach((r,i)=>{const pct=(r.total/lmax*100).toFixed(1);
     const tcls=filtered?'':' al-t-'+tierOf(r);
     ltbl+='<tr><td class="num rank">'+(i+1)+'</td><td>'+alEsc(r.adviser)+'</td>'+
       '<td class="num bar-cell'+tcls+'"><div class="bar-fill" style="width:'+pct+'%"></div><span>'+fmtGBPfull(r.total)+'</span></td>'+
-      '<td class="num">'+fmtGBPfull(r.new_money)+'</td>'+
-      '<td class="num">'+fmtGBPfull(r.rollover)+'</td></tr>';});
+      (alCols.new?'<td class="num">'+fmtGBPfull(r.new_money)+'</td>':'')+
+      (alCols.roll?'<td class="num">'+fmtGBPfull(r.rollover)+'</td>':'')+
+      (alCols.py?'<td class="num al-py">'+(py.data?fmtGBPfull(pyMap[r.adviser]||0):'\u2014')+'</td>':'')+'</tr>';});
   ltbl+='</tbody></table>';
+  ltbl='<div class="al-tbl-scroll'+(nCols>5?' al-many':'')+'">'+ltbl+'</div>';
   if(!filtered && lrows.length){
     ltbl='<div class="al-tier-key"><span><i style="background:#FFC553"></i>2.5M+</span>'+
       '<span><i style="background:#7FD6DF"></i>Rising Stars \u00a3500k\u20132.5M</span>'+
@@ -1218,6 +1285,18 @@ function alSetBasis(b){alBasis=b;alBasisYtdBtn.classList.toggle('active',b==='yt
 alBasisYtdBtn.addEventListener('click',()=>alSetBasis('ytd'));
 alBasisLyBtn.addEventListener('click',()=>alSetBasis('ly'));
 alServBtn.addEventListener('click',()=>{alRole='servicing';renderLeague();});
+(function(){
+  const btn=document.getElementById('alXsBtn'),menu=document.getElementById('alXsMenu');
+  menu.querySelectorAll('input[data-col]').forEach(cb=>{
+    cb.checked=!!alCols[cb.dataset.col];
+    cb.addEventListener('change',()=>{alCols[cb.dataset.col]=cb.checked;
+      try{localStorage.setItem('alCols',JSON.stringify(alCols));}catch(e){}
+      renderLeague();});
+  });
+  btn.addEventListener('click',e=>{e.stopPropagation();menu.hidden=!menu.hidden;btn.setAttribute('aria-expanded',String(!menu.hidden));});
+  menu.addEventListener('click',e=>e.stopPropagation());
+  document.addEventListener('click',()=>{menu.hidden=true;btn.setAttribute('aria-expanded','false');});
+})();
 alSellBtn.addEventListener('click',()=>{alRole='selling';renderLeague();});
 renderLeague();
 
@@ -1490,6 +1569,7 @@ tlRender();
    ============================================================ */
 (function(){
   const RP=DATA.raising_progress||{};
+  const RP_LM_TXT=RP.last_month_label?' ('+RP.last_month_label+')':'';
   const tabBtn=document.querySelector('.tab[data-tab="raising"]');
   const panel=document.getElementById('raising');
   if(!RP.available||!(RP.companies||[]).length){
@@ -1628,6 +1708,7 @@ tlRender();
             <div class="rp-detail-row"><span class="rp-detail-lbl"> Live (completed MTD)</span><span class="rp-detail-val">${fmtGBPfull(raised)} · ${c.investments_mtd} inv</span></div>
             <div class="rp-detail-row"><span class="rp-detail-lbl"> Written (processed form)</span><span class="rp-detail-val">${fmtGBPfull(wp)} · ${wpCount} inv</span></div>
             <div class="rp-detail-row"><span class="rp-detail-lbl"> Money received</span><span class="rp-detail-val">${fmtGBPfull(mr)} · ${mrCount} inv</span></div>
+            <div class="rp-detail-row"><span class="rp-detail-lbl">Completed last month${RP_LM_TXT}</span><span class="rp-detail-val">${fmtGBPfull(c.completed_last_month||0)} \u00b7 ${c.completed_last_month_count||0} inv</span></div>
             <div class="rp-detail-row"><span class="rp-detail-lbl">Expected by today</span><span class="rp-detail-val">${fmtGBPfull(c.expected_by_today)}</span></div>
             <div class="rp-detail-row"><span class="rp-detail-lbl">Pace vs. expected</span><span class="rp-detail-val">${(c.pace_ratio*100).toFixed(0)}%</span></div>
             <div class="rp-detail-row"><span class="rp-detail-lbl">Total raised (all-time)</span><span class="rp-detail-val">${c.total_raised_lifetime>0?fmtGBPfull(c.total_raised_lifetime):'—'}</span></div>
@@ -1694,6 +1775,7 @@ tlRender();
           <div class="rp-detail-inner">
             <div class="rp-detail-row"><span class="rp-detail-lbl">Total raising requirement</span><span class="rp-detail-val">${req>0?fmtGBPfull(req):'—'}</span></div>
             <div class="rp-detail-row"><span class="rp-detail-lbl">Total raised (all-time)</span><span class="rp-detail-val">${fmtGBPfull(raised)}</span></div>
+            <div class="rp-detail-row"><span class="rp-detail-lbl">Completed last month${RP_LM_TXT}</span><span class="rp-detail-val">${fmtGBPfull(c.completed_last_month||0)} \u00b7 ${c.completed_last_month_count||0} inv</span></div>
             <div class="rp-detail-row"><span class="rp-detail-lbl">Left to raise</span><span class="rp-detail-val">${req>0?fmtGBPfull(toRaise):'—'}</span></div>
             <div class="rp-detail-row"><span class="rp-detail-lbl">Progress</span><span class="rp-detail-val">${req>0?(pct*100).toFixed(0)+'%':'—'}</span></div>
             <div class="rp-detail-row"><span class="rp-detail-lbl">Monthly target</span><span class="rp-detail-val">${fmtGBPfull(c.monthly_target||0)}</span></div>
@@ -1797,6 +1879,7 @@ tlRender();
           <div class="rp-detail">
             <div class="rp-detail-inner">
               <div class="rp-detail-row"><span class="rp-detail-lbl">Total raised (all-time)</span><span class="rp-detail-val">${fmtGBPfull(raised)}</span></div>
+              <div class="rp-detail-row"><span class="rp-detail-lbl">Completed last month${RP_LM_TXT}</span><span class="rp-detail-val">${fmtGBPfull(c.completed_last_month||0)} \u00b7 ${c.completed_last_month_count||0} inv</span></div>
               <div class="rp-detail-row"><span class="rp-detail-lbl">Money received</span><span class="rp-detail-val">${fmtGBPfull(mr)}</span></div>
               <div class="rp-detail-row"><span class="rp-detail-lbl">Year of most recent completion</span><span class="rp-detail-val">${c.year_of_most_recent_completion||'\u2014'}</span></div>
             </div>
@@ -1823,6 +1906,7 @@ tlRender();
             <div class="rp-detail-inner">
               <div class="rp-detail-row"><span class="rp-detail-lbl">Live this month</span><span class="rp-detail-val">${fmtGBPfull(live)} \u00b7 ${c.investments_mtd||0} inv</span></div>
               <div class="rp-detail-row"><span class="rp-detail-lbl">Money received</span><span class="rp-detail-val">${fmtGBPfull(mr)} \u00b7 ${c.money_received_pending_count||0} inv</span></div>
+              <div class="rp-detail-row"><span class="rp-detail-lbl">Completed last month${RP_LM_TXT}</span><span class="rp-detail-val">${fmtGBPfull(c.completed_last_month||0)} \u00b7 ${c.completed_last_month_count||0} inv</span></div>
               <div class="rp-detail-row"><span class="rp-detail-lbl">Total raised (all-time)</span><span class="rp-detail-val">${lifetime>0?fmtGBPfull(lifetime):'\u2014'}</span></div>
             </div>
           </div>

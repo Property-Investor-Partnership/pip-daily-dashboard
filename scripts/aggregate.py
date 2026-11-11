@@ -382,6 +382,14 @@ def build_league(adviser_field):
         add("ALL", adv, amt, roll)    # all-time bucket (since the start of PIP)
         if d.year==CUR_YEAR:
             add(f"{CUR_YEAR}-YTD", adv, amt, roll)  # year-to-date bucket
+        # Same period last year, cut off at today's day-and-month so an
+        # in-progress YTD / quarter / month compares like for like.
+        if d.year==CUR_YEAR-1 and (d.month, d.day) <= (NOW.month, NOW.day):
+            add("PRIOR-YTD", adv, amt, roll)
+            if (d.month-1)//3 == (NOW.month-1)//3:
+                add("PRIOR-QTD", adv, amt, roll)
+            if d.month == NOW.month:
+                add("PRIOR-MTD", adv, amt, roll)
     # assemble each period: ranked advisers + period summary
     out_periods={}
     for pk,advs in per.items():
@@ -437,6 +445,7 @@ adviser_league={
     "selling":build_league("Selling Adviser"),
     "default_period":_qkeys[0] if _qkeys else f"{CUR_YEAR}-YTD",
     "month_keys":_mkeys,   # newest first
+    "as_at":NOW.strftime("%Y-%m-%d"),   # PRIOR-* buckets run to this day-and-month last year
     "monthly":{"servicing":build_monthly("Servicing Adviser"),
                "selling":build_monthly("Selling Adviser")},
 }
@@ -530,6 +539,11 @@ _total_raised_old_rule = defaultdict(float)   # pre-Oct-2026 rule, for the log
 # "Projects Without a Target" section to let the user filter by completion year.
 # Same eligibility rules as _total_raised_by_project (NTU / Takeover excluded).
 _last_completion_year_by_project = {}
+# Completed last month per Investment Project: Start Date in the previous
+# calendar month. Same eligibility as Total Raised (not NTU, name excludes
+# "Takeover", the monthly exclude flag is ignored). Dropdown info only.
+_LM_Y, _LM_M = (NOW.year - 1, 12) if NOW.month == 1 else (NOW.year, NOW.month - 1)
+_lm_by_project = defaultdict(lambda: [0.0, 0])   # [sum, count]
 def _excluded_from_raising_req(r):
     """HubSpot flag: 'Exclude from this Month's Raising Req'. True means
     the investment must be omitted from ALL Raising Progress figures
@@ -557,6 +571,9 @@ for r in rows:
             _total_raised_old_rule[proj] += amt   # previous rule, log only
         if stage_of(r) != "ntu" and "takeover" not in _iname:
             _total_raised_by_project[proj] += amt
+            if (sd.year, sd.month) == (_LM_Y, _LM_M):
+                _lm_by_project[proj][0] += amt
+                _lm_by_project[proj][1] += 1
             prev_yr = _last_completion_year_by_project.get(proj)
             if prev_yr is None or sd.year > prev_yr:
                 _last_completion_year_by_project[proj] = sd.year
@@ -599,6 +616,7 @@ raising_progress = {
     "available": False,
     "generated_at": NOW.isoformat(),
     "month_label": NOW.strftime("%B %Y"),
+    "last_month_label": datetime(_LM_Y, _LM_M, 1).strftime("%B %Y"),
     "day_of_month": NOW.day,
     "days_in_month": _DAYS_IN_MONTH,
     "expected_pct": round(_EXPECTED_PCT, 4),
@@ -622,6 +640,7 @@ if os.path.exists(_COMPANIES_CSV):
         raised, count = _mtd_by_project.get(sub, [0.0, 0])
         mr_sum, mr_count = _mr_by_project.get(sub, [0.0, 0])
         wp_sum, wp_count = _wp_by_project.get(sub, [0.0, 0])
+        lm_sum, lm_count = _lm_by_project.get(sub, [0.0, 0])
         lifetime_raised = _total_raised_by_project.get(sub, 0.0)
         has_target = (mrr > 0 or rr_total > 0)
         has_activity = (count > 0 or mr_count > 0 or lifetime_raised > 0)
@@ -658,6 +677,8 @@ if os.path.exists(_COMPANIES_CSV):
             # pace, colour bucket, target_hit, or any progress calculation.
             "written_processed_pending": round(wp_sum, 2),
             "written_processed_pending_count": wp_count,
+            "completed_last_month": round(lm_sum, 2),
+            "completed_last_month_count": lm_count,
             "combined_mtd": round(combined, 2),
             "combined_count": combined_count,
             "actual_pct": round(actual_pct, 4),

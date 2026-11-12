@@ -169,6 +169,13 @@ tbody tr:hover{background:var(--surface-alt)}
 .cmp-periods{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px}
 .cmp-pill{font:inherit;font-size:13px;font-weight:600;padding:8px 15px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;transition:all .15s;white-space:nowrap}
 .cmp-pill:hover{border-color:var(--primary)}
+.cmp-range{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin:-8px 0 20px}
+.cmp-range[hidden]{display:none}
+.cmp-range label{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600}
+.cmp-range input[type=date]{font:inherit;font-size:14px;padding:7px 10px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text)}
+.cmp-range-quick{display:flex;gap:6px;flex-wrap:wrap}
+.cmp-mini{font:inherit;font-size:12px;font-weight:600;padding:6px 11px;border-radius:999px;border:1px solid var(--border);background:var(--surface-alt);color:var(--text);cursor:pointer}
+.cmp-mini:hover{border-color:var(--primary)}
 .cmp-pill.active{background:var(--primary);border-color:var(--primary);color:#fff}
 .cmp-hero-wrap{margin-bottom:20px}
 .cmp-hero{background:linear-gradient(135deg,#063e42,#0a5c63);border-radius:16px;padding:24px 26px;box-shadow:var(--shadow);position:relative;overflow:hidden}
@@ -531,6 +538,15 @@ footer{padding:26px 0;border-top:1px solid var(--border);font-size:12px;color:va
     </div>
   </div>
   <div class="cmp-periods" id="cmpPeriods"></div>
+  <div class="cmp-range" id="cmpRange" hidden>
+    <label><span class="csub">From:</span> <input type="date" id="cmpFrom"></label>
+    <label><span class="csub">To:</span> <input type="date" id="cmpTo"></label>
+    <span class="cmp-range-quick">
+      <button type="button" class="cmp-mini" data-q="lm">Last month</button>
+      <button type="button" class="cmp-mini" data-q="l3">Last 3 months</button>
+      <button type="button" class="cmp-mini" data-q="l12">Last 12 months</button>
+    </span>
+  </div>
   <div id="cmpHero" class="cmp-hero-wrap"></div>
   <div class="cmp-grid" id="cmpDevGrid"></div>
   <div id="cmpEmpty" class="cmp-empty" hidden>No completions in this period.</div>
@@ -1518,7 +1534,41 @@ tlRender();
   // build the period selector: WTD, MTD, YTD, then each year newest-first
   const baseDefs=[['wtd','Week to date'],['mtd','Month to date'],['ytd','Year to date']];
   const yearDefs=CMP.years.slice().sort((a,b)=>b-a).map(y=>[String(y),String(y)]);
-  const allDefs=baseDefs.concat(yearDefs);
+  const CR=CMP.range||null;   // compact rows for the custom range (after the next refresh)
+  const allDefs=baseDefs.concat(CR?[['custom','Custom range']]:[]).concat(yearDefs);
+  const rangeEl=document.getElementById('cmpRange'),fromEl=document.getElementById('cmpFrom'),toEl=document.getElementById('cmpTo');
+  const isoOf=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  if(CR){
+    const asAt=new Date(CMP.as_at+'T00:00:00');
+    let saved={};try{saved=JSON.parse(localStorage.getItem('cmpRange')||'{}');}catch(e){}
+    fromEl.value=saved.from||isoOf(new Date(asAt.getFullYear(),asAt.getMonth(),1));
+    toEl.value=saved.to||CMP.as_at;
+    if(CR.rows.length){const r0=String(CR.rows[0][0]);fromEl.min=toEl.min=r0.slice(0,4)+'-'+r0.slice(4,6)+'-'+r0.slice(6,8);}
+  }
+  // Group the compact rows inside [from, to] into the same shape as a server period.
+  function cmpRangePeriod(){
+    let a=fromEl.value,b=toEl.value; if(!a||!b) return {total:0,count:0,developers:[]};
+    if(a>b){const x=a;a=b;b=x;}
+    const lo=+a.replace(/-/g,''),hi=+b.replace(/-/g,'');
+    const devs={};let total=0,count=0;
+    CR.rows.forEach(([ymd,di,pi,ti,ns,nc,rs,rc])=>{
+      if(ymd<lo||ymd>hi) return;
+      const amt=ns+rs,n=nc+rc; total+=amt; count+=n;
+      const dv=devs[di]||(devs[di]={developer:CR.devs[di],total:0,count:0,p:{}});
+      dv.total+=amt; dv.count+=n;
+      const pr=dv.p[pi]||(dv.p[pi]={project:CR.projs[pi],total:0,count:0,t:{}});
+      pr.total+=amt; pr.count+=n;
+      const tr=pr.t[ti]||(pr.t[ti]={ti,t:ti<0?null:CR.tranches[ti],total:0,count:0,nm:[0,0],ro:[0,0],dm:{}});
+      tr.total+=amt; tr.count+=n; tr.nm[0]+=ns; tr.nm[1]+=nc; tr.ro[0]+=rs; tr.ro[1]+=rc;
+      const ds=String(ymd),dk=ds.slice(0,4)+'-'+ds.slice(4,6)+'-'+ds.slice(6,8);
+      const dd=tr.dm[dk]||(tr.dm[dk]=[dk,0,0]); dd[1]+=amt; dd[2]+=n;
+    });
+    const developers=Object.values(devs).sort((x,y)=>y.total-x.total).map(dv=>({developer:dv.developer,total:dv.total,count:dv.count,
+      projects:Object.values(dv.p).sort((x,y)=>y.total-x.total).map(pr=>({project:pr.project,total:pr.total,count:pr.count,
+        tranches:Object.values(pr.t).sort((x,y)=>(x.ti<0)-(y.ti<0)||x.ti-y.ti).map(tr=>({t:tr.t,total:tr.total,count:tr.count,nm:tr.nm,ro:tr.ro,
+          d:Object.values(tr.dm).sort((x,y)=>x[0]<y[0]?-1:1)}))}))}));
+    return {total,count,developers,from:a,to:b};
+  }
   let cmpActive=CMP.default_period||'mtd';
   const niceDate=(s)=>{const d=new Date(s+'T00:00:00');return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});};
   // DD/MM/YYYY for the hero label, e.g. 25/06/2026
@@ -1527,11 +1577,13 @@ tlRender();
   // hero label appends the data-import date to the to-date periods, e.g.
   // "Week to date (25/06/2026)". Past calendar years need no date suffix.
   function heroLabel(k){
+    if(k==='custom'){let a=fromEl.value,b=toEl.value;if(a>b){const x=a;a=b;b=x;}return 'Custom range ('+ddmmyyyy(a)+' \u2013 '+ddmmyyyy(b)+')';}
     const base=periodLabel(k);
     if(k==='wtd'||k==='mtd'||k==='ytd')return base+' ('+ddmmyyyy(CMP.as_at)+')';
     return base;
   }
   function periodSubtitle(k){
+    if(k==='custom')return 'Capital that went live between the two dates (both days included), as at '+niceDate(CMP.as_at)+'. Excludes future-dated investments not yet started.';
     if(k==='wtd')return 'Capital that went live this week (from Mon '+niceDate(CMP.week_start)+'), as at '+niceDate(CMP.as_at)+'. Excludes future-dated investments not yet started.';
     if(k==='mtd')return 'Capital that went live so far this month, as at '+niceDate(CMP.as_at)+'. Excludes future-dated investments not yet started.';
     if(k==='ytd')return 'Capital that went live so far this year, as at '+niceDate(CMP.as_at)+'. Excludes future-dated investments not yet started.';
@@ -1566,7 +1618,8 @@ tlRender();
   }
   function renderCompletions(){
     const openDevs=new Set([...gridEl.querySelectorAll('.cmp-dev.open')].map(c=>c.dataset.dev));
-    const P=CMP.periods[cmpActive]||{total:0,count:0,developers:[]};
+    const P=cmpActive==='custom'?cmpRangePeriod():(CMP.periods[cmpActive]||{total:0,count:0,developers:[]});
+    rangeEl.hidden=cmpActive!=='custom';
     subEl.textContent=periodSubtitle(cmpActive);
     periodsEl.querySelectorAll('.cmp-pill').forEach(b=>b.classList.toggle('active',b.dataset.p===cmpActive));
     // hero: total across all completions in the period
@@ -1604,6 +1657,15 @@ tlRender();
       e.stopPropagation(); const k=b.dataset.k; cmpMoreOpen.has(k)?cmpMoreOpen.delete(k):cmpMoreOpen.add(k); renderCompletions();}));
   }
   renderPeriods();
+  if(CR){
+    const saveRange=()=>{try{localStorage.setItem('cmpRange',JSON.stringify({from:fromEl.value,to:toEl.value}));}catch(e){}};
+    [fromEl,toEl].forEach(el=>el.addEventListener('change',()=>{saveRange();cmpMoreOpen.clear();renderCompletions();}));
+    rangeEl.querySelectorAll('.cmp-mini').forEach(b=>b.addEventListener('click',()=>{
+      const asAt=new Date(CMP.as_at+'T00:00:00'),y=asAt.getFullYear(),m=asAt.getMonth();
+      if(b.dataset.q==='lm'){fromEl.value=isoOf(new Date(y,m-1,1));toEl.value=isoOf(new Date(y,m,0));}
+      else{const n=b.dataset.q==='l3'?3:12;fromEl.value=isoOf(new Date(y,m-n+1,1));toEl.value=CMP.as_at;}
+      saveRange();cmpMoreOpen.clear();renderCompletions();}));
+  }
   renderCompletions();
   window.__renderCompletions=renderCompletions;
 })();

@@ -158,7 +158,40 @@ for y in YEARS:
     lo = datetime(y, 1, 1); hi = datetime(y + 1, 1, 1)
     periods[str(y)] = build_period([r for r in rows if in_range(r, lo, hi)])
 
+# ---- compact rows for the Custom range option (built in the browser) ----
+# One row per (start date, developer, project, tranche) with New money and
+# Rollover sums - no investment names. Same went_live rule as the periods.
+def build_range_rows(records):
+    devs, projs, trs = {}, {}, {}
+    tr_keys = {}
+    g = defaultdict(lambda: [0.0, 0, 0.0, 0])
+    for r in records:
+        d = start_dt(r)
+        if not d or not went_live(r): continue
+        dv = gv(r, "Developer (project)") or "(blank)"
+        pj = gv(r, "Investment Project") or "(blank)"
+        tk = tranche_key(r)
+        di = devs.setdefault(dv, len(devs)); pi = projs.setdefault(pj, len(projs))
+        ti = None
+        if tk is not None:
+            if tk[1] not in tr_keys: tr_keys[tk[1]] = tk[0]
+            ti = tk[1]
+        amt = num(r.get("Investment")) or 0
+        c = g[(int(d.strftime("%Y%m%d")), di, pi, ti)]
+        if comp_is_rollover(r): c[2] += amt; c[3] += 1
+        else: c[0] += amt; c[1] += 1
+    # tranche labels in display order (same sort as the period breakdown)
+    tlist = sorted(tr_keys, key=lambda l: (tr_keys[l], l))
+    tidx = {l: i for i, l in enumerate(tlist)}
+    rows = [[k[0], k[1], k[2], (tidx[k[3]] if k[3] is not None else -1),
+             round(v[0], 2), v[1], round(v[2], 2), v[3]]
+            for k, v in sorted(g.items(), key=lambda x: (x[0][0], x[0][1], x[0][2]))]
+    return {"devs": list(devs), "projs": list(projs), "tranches": tlist,
+            # [yyyymmdd, dev, project, tranche (-1 = none), new £, new n, rollover £, rollover n]
+            "rows": rows}
+
 completions = {
+    "range": build_range_rows(rows),
     "as_at": NOW.strftime("%Y-%m-%d"),
     "available": True,
     "default_period": "mtd",

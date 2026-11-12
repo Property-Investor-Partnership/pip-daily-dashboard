@@ -60,8 +60,11 @@ COLUMN_MAP = [
     ("Estimated Interest Paid",       "estimated_interest_paid"),
     ("Exclude from this Month's Raising Req", "exclude_from_this_months_raising_req"),
     ("Tranche Number",                "tranche_number_prop"),
+    ("Is Rollover Tranche",           "is_rollover_tranche"),
     ("Source Investment Project",     "source_investment_project"),
 ]
+# Properties that may not exist on the object yet (checked before fetching).
+OPTIONAL_PROPS = ["is_rollover_tranche"]
 # The export carries a second "Developer" column ("Developer (project)").
 DUPLICATE_DEVELOPER = True
 
@@ -251,6 +254,14 @@ def main():
     OWNER_PROPS = {"advisor", "selling_adviser"}
 
     props = sorted({api for _, api in COLUMN_MAP})
+    # Optional properties: if one doesn't exist on this object yet, leave it
+    # out (its CSV column is just blank) rather than risk the whole refresh.
+    for opt in OPTIONAL_PROPS:
+        try:
+            _req("GET", f"/crm/v3/properties/{OBJECT_TYPE}/{opt}")
+        except SystemExit:
+            sys.stderr.write(f"  WARNING: property '{opt}' not found on {OBJECT_TYPE}; column left blank\n")
+            props = [x for x in props if x != opt]
     sys.stderr.write(f"Fetching all records ({len(props)} properties)...\n")
     records = fetch_all(props)
     sys.stderr.write(f"Total records: {len(records)}\n")

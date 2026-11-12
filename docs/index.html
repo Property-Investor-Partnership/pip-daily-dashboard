@@ -175,7 +175,7 @@ tbody tr:hover{background:var(--surface-alt)}
 .cmp-hero .label{font-size:12.5px;color:rgba(255,255,255,.78);font-weight:600;text-transform:uppercase;letter-spacing:.5px}
 .cmp-hero .val{font-size:42px;font-weight:900;color:#fff;margin-top:8px;letter-spacing:-1px;font-variant-numeric:tabular-nums lining-nums;line-height:1}
 .cmp-hero .note{font-size:13px;color:rgba(255,255,255,.82);margin-top:8px}
-.cmp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;align-items:start}
+.cmp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:16px;align-items:start}
 .cmp-dev{background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;transition:border-color .15s}
 .cmp-dev.open{border-color:var(--primary)}
 .cmp-dev-btn{width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:17px 18px;display:flex;align-items:center;gap:12px;font:inherit}
@@ -188,12 +188,30 @@ tbody tr:hover{background:var(--surface-alt)}
 .cmp-caret{width:16px;height:16px;flex:none;color:var(--muted);transition:transform .22s ease}
 .cmp-dev.open .cmp-caret{transform:rotate(180deg)}
 .cmp-projects{max-height:0;overflow:hidden;transition:max-height .28s ease;border-top:0 solid var(--border)}
-.cmp-dev.open .cmp-projects{max-height:1200px;border-top:1px solid var(--border)}
+.cmp-dev.open .cmp-projects{max-height:20000px;border-top:1px solid var(--border)}
 .cmp-proj{display:flex;align-items:center;gap:10px;padding:11px 18px;border-bottom:1px solid var(--surface-alt)}
 .cmp-proj:last-child{border-bottom:none}
 .cmp-proj-name{flex:1;min-width:0;font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cmp-proj-cnt{font-size:11px;color:var(--faint);flex:none}
 .cmp-proj-val{font-size:13.5px;font-weight:700;font-variant-numeric:tabular-nums lining-nums;color:var(--text);flex:none}
+.cmp-pblock{border-bottom:1px solid var(--border)}
+.cmp-pblock:last-child{border-bottom:none}
+.cmp-pblock .cmp-proj{border-bottom:none;padding-top:13px;padding-bottom:8px}
+.cmp-pblock .cmp-proj-name{font-weight:700}
+.cmp-trs{padding:0 18px 14px}
+.cmp-tr{background:var(--surface-alt);border-radius:10px;padding:9px 12px;margin-top:8px}
+.cmp-tr-head{display:flex;align-items:baseline;gap:8px}
+.cmp-tr-lbl{font-size:12.5px;font-weight:800;color:var(--text);flex:none}
+.cmp-tr-lbl .cmp-r{display:inline-block;margin-left:5px;font-size:9.5px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;color:#A84B2F;background:rgba(168,75,47,.10);border-radius:4px;padding:1px 5px;vertical-align:1px}
+.cmp-tr-date{flex:1;min-width:0;font-size:11.5px;color:var(--muted)}
+.cmp-tr-val{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums lining-nums;flex:none}
+.cmp-tr-split{display:flex;gap:6px 14px;flex-wrap:wrap;margin-top:5px;font-size:11.5px;color:var(--muted)}
+.cmp-tr-split b{color:var(--text);font-weight:700;font-variant-numeric:tabular-nums lining-nums}
+.cmp-tr-split i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:0}
+.cmp-tr-dates{margin-top:7px;border-top:1px dashed rgba(40,37,29,.14);padding-top:5px}
+.cmp-tr-d{display:flex;justify-content:space-between;gap:10px;font-size:11.5px;padding:2px 0;color:var(--muted)}
+.cmp-tr-d span:last-child{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums lining-nums}
+.cmp-tr-more{font:inherit;font-size:11.5px;font-weight:600;color:var(--primary);background:none;border:none;padding:4px 0 0;cursor:pointer}
 .cmp-empty{padding:40px 0;text-align:center;color:var(--muted);font-size:14px}
 /* ---------- Raising Progress ---------- */
 .rp-controls{display:flex;flex-direction:column;align-items:flex-end;gap:10px;flex-shrink:0}
@@ -334,6 +352,7 @@ footer{padding:26px 0;border-top:1px solid var(--border);font-size:12px;color:va
   .kpi .val{font-size:24px}
   .card{padding:16px}
   .cmp-grid{grid-template-columns:1fr;gap:12px}
+  .cmp-trs{padding:0 14px 12px}
   .cmp-hero .val{font-size:36px}
   .cmp-title{font-size:19px}
   /* let fixed-height charts breathe a bit less on small screens */
@@ -1520,11 +1539,33 @@ tlRender();
   }
   function renderPeriods(){
     periodsEl.innerHTML=allDefs.map(d=>'<button class="cmp-pill'+(d[0]===cmpActive?' active':'')+'" data-p="'+d[0]+'">'+d[1]+'</button>').join('');
-    periodsEl.querySelectorAll('.cmp-pill').forEach(b=>b.addEventListener('click',()=>{cmpActive=b.dataset.p;renderCompletions();}));
+    periodsEl.querySelectorAll('.cmp-pill').forEach(b=>b.addEventListener('click',()=>{cmpActive=b.dataset.p;cmpMoreOpen.clear();renderCompletions();}));
   }
   const CARET='<svg class="cmp-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>';
   function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  // Tranche breakdown inside a project: label (11 / 11R), total, New money vs
+  // Rollover split, and the start date(s) - one line per date when there are several.
+  const CMP_DATES_SHOWN=4, cmpMoreOpen=new Set();
+  const shortDate=s=>s?new Date(s+'T00:00:00').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}):'No start date';
+  function cmpTranches(trs,key){
+    if(!trs||!trs.length) return '';
+    return '<div class="cmp-trs">'+trs.map((t,ti)=>{
+      const lbl=t.t==null?'No tranche':'Tranche '+esc(t.t);
+      const one=t.d.length===1;
+      const dateTxt=one?shortDate(t.d[0][0]):t.d.length+' start dates';
+      const k=key+'-'+ti, open=cmpMoreOpen.has(k);
+      const shown=(t.d.length>CMP_DATES_SHOWN&&!open)?t.d.slice(0,CMP_DATES_SHOWN):t.d;
+      const dates=one?'':'<div class="cmp-tr-dates">'+shown.map(d=>'<div class="cmp-tr-d"><span>'+shortDate(d[0])+'</span><span>'+fmtGBPfull(d[1])+' \u00b7 '+fmtN(d[2])+'\u00d7</span></div>').join('')+
+        (t.d.length>CMP_DATES_SHOWN?'<button type="button" class="cmp-tr-more" data-k="'+k+'">'+(open?'Show fewer dates':'Show all '+t.d.length+' dates')+'</button>':'')+'</div>';
+      return '<div class="cmp-tr"><div class="cmp-tr-head"><span class="cmp-tr-lbl">'+lbl+'</span>'+
+        '<span class="cmp-tr-date">'+dateTxt+'</span><span class="cmp-tr-val">'+fmtGBPfull(t.total)+' \u00b7 '+fmtN(t.count)+'\u00d7</span></div>'+
+        '<div class="cmp-tr-split"><span><i style="background:#20808D"></i>New money <b>'+fmtGBPfull(t.nm[0])+'</b> ('+fmtN(t.nm[1])+')</span>'+
+        '<span><i style="background:#A84B2F"></i>Rollover <b>'+fmtGBPfull(t.ro[0])+'</b> ('+fmtN(t.ro[1])+')</span></div>'+
+        dates+'</div>';
+    }).join('')+'</div>';
+  }
   function renderCompletions(){
+    const openDevs=new Set([...gridEl.querySelectorAll('.cmp-dev.open')].map(c=>c.dataset.dev));
     const P=CMP.periods[cmpActive]||{total:0,count:0,developers:[]};
     subEl.textContent=periodSubtitle(cmpActive);
     periodsEl.querySelectorAll('.cmp-pill').forEach(b=>b.classList.toggle('active',b.dataset.p===cmpActive));
@@ -1536,13 +1577,14 @@ tlRender();
     if(!P.developers.length){gridEl.innerHTML='';emptyEl.hidden=false;return;}
     emptyEl.hidden=true;
     gridEl.innerHTML=P.developers.map((dv,i)=>{
-      const projRows=dv.projects.map(pr=>(
-        '<div class="cmp-proj"><span class="cmp-proj-name" title="'+esc(pr.project)+'">'+esc(pr.project)+'</span>'+
+      const projRows=dv.projects.map((pr,pi)=>(
+        '<div class="cmp-pblock"><div class="cmp-proj"><span class="cmp-proj-name" title="'+esc(pr.project)+'">'+esc(pr.project)+'</span>'+
         '<span class="cmp-proj-cnt">'+fmtN(pr.count)+'\u00d7</span>'+
-        '<span class="cmp-proj-val">'+fmtGBPfull(pr.total)+'</span></div>'
+        '<span class="cmp-proj-val">'+fmtGBPfull(pr.total)+'</span></div>'+
+        cmpTranches(pr.tranches,i+'-'+pi)+'</div>'
       )).join('');
-      const multi=dv.projects.length>1;
-      return '<div class="cmp-dev" data-i="'+i+'">'+
+      const multi=true;
+      return '<div class="cmp-dev'+(openDevs.has(dv.developer)?' open':'')+'" data-i="'+i+'" data-dev="'+esc(dv.developer)+'">'+
         '<button class="cmp-dev-btn" type="button" aria-expanded="false">'+
           '<span class="cmp-dev-main"><span class="cmp-dev-name">'+esc(dv.developer)+'</span>'+
           '<span class="cmp-dev-meta">'+fmtN(dv.count)+' investment'+(dv.count===1?'':'s')+' \u00b7 '+dv.projects.length+' project'+(dv.projects.length===1?'':'s')+(multi?' \u00b7 tap to expand':'')+'</span></span>'+
@@ -1558,6 +1600,8 @@ tlRender();
         btn.setAttribute('aria-expanded',open?'true':'false');
       });
     });
+    gridEl.querySelectorAll('.cmp-tr-more').forEach(b=>b.addEventListener('click',e=>{
+      e.stopPropagation(); const k=b.dataset.k; cmpMoreOpen.has(k)?cmpMoreOpen.delete(k):cmpMoreOpen.add(k); renderCompletions();}));
   }
   renderPeriods();
   renderCompletions();

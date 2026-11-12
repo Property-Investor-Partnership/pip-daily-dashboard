@@ -70,10 +70,49 @@ YEARS = sorted({d.year for r in rows if (d := start_dt(r))})
 # keep the same span the live dashboard used (2017..current)
 YEARS = [y for y in YEARS if y >= 2017]
 
+# ---- tranche breakdown inside each project (Completions dropdowns) ----
+# Label = Tranche Number, plus "R" when Is Rollover Tranche is true (e.g. "11R").
+# Rollover vs New Money uses the same name rule as the Raising & Pipeline tab:
+# Name contains "rollover" or "extension" = Rollover; everything else = New Money.
+TRUE_VALS = {"true", "yes", "1", "y"}
+def comp_is_rollover(r):
+    n = gv(r, "Name").lower()
+    return "rollover" in n or "extension" in n
+def tranche_key(r):
+    """(sort_key, label) or None when there is no tranche number."""
+    v = gv(r, "Tranche Number")
+    if not v: return None
+    n = num(v)
+    base = str(int(n)) if (n is not None and float(n).is_integer()) else v
+    roll = gv(r, "Is Rollover Tranche").lower() in TRUE_VALS
+    sk = (0, float(n), 1 if roll else 0) if n is not None else (1, 0.0, 1 if roll else 0)
+    return (sk, base + ("R" if roll else ""))
+
+def build_tranches(rs):
+    by = defaultdict(list)
+    for r in rs: by[tranche_key(r)].append(r)
+    keys = sorted([k for k in by if k is not None], key=lambda k: (k[0], k[1])) + ([None] if None in by else [])
+    out = []
+    for k in keys:
+        nm = [0.0, 0]; ro = [0.0, 0]; dates = defaultdict(lambda: [0.0, 0])
+        for r in by[k]:
+            amt = num(r.get("Investment")) or 0
+            b = ro if comp_is_rollover(r) else nm
+            b[0] += amt; b[1] += 1
+            d = start_dt(r); dk = d.strftime("%Y-%m-%d") if d else ""
+            dates[dk][0] += amt; dates[dk][1] += 1
+        out.append({"t": k[1] if k else None,
+                    "total": round(nm[0] + ro[0], 2), "count": nm[1] + ro[1],
+                    "nm": [round(nm[0], 2), nm[1]], "ro": [round(ro[0], 2), ro[1]],
+                    # [date, total, count], oldest first
+                    "d": [[dk, round(v[0], 2), v[1]] for dk, v in sorted(dates.items())]})
+    return out
+
 def build_period(records):
     """Group a record list into the developer->project->total/count structure."""
     total = 0.0; count = 0
     dev = defaultdict(lambda: {"total": 0.0, "count": 0, "projects": defaultdict(lambda: [0, 0.0])})
+    rows_by = defaultdict(list)
     for r in records:
         amt = num(r.get("Investment")) or 0
         total += amt; count += 1
@@ -81,9 +120,11 @@ def build_period(records):
         proj = gv(r, "Investment Project") or "(blank)"
         dev[d]["total"] += amt; dev[d]["count"] += 1
         dev[d]["projects"][proj][0] += 1; dev[d]["projects"][proj][1] += amt
+        rows_by[(d, proj)].append(r)
     devs = []
     for dname, dd in sorted(dev.items(), key=lambda x: -x[1]["total"]):
-        projs = [{"project": p, "total": round(v[1], 2), "count": v[0]}
+        projs = [{"project": p, "total": round(v[1], 2), "count": v[0],
+                  "tranches": build_tranches(rows_by[(dname, p)])}
                  for p, v in sorted(dd["projects"].items(), key=lambda x: -x[1][1])]
         devs.append({"developer": dname, "total": round(dd["total"], 2),
                      "count": dd["count"], "projects": projs})

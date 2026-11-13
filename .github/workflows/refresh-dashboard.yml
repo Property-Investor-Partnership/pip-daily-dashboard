@@ -1,15 +1,13 @@
 name: Refresh dashboard from HubSpot
 
-# Runs on a schedule (and on-demand) to pull the latest investment data
-# from HubSpot, rebuild docs/index.html, and commit. GitHub Pages then
-# redeploys automatically.
+# Pull the latest investment data from HubSpot, rebuild docs/index.html,
+# and commit the updated dashboard.
 
 on:
-  schedule:
-    # Hourly 9am–6pm London (BST). GitHub cron is always UTC — subtract 1h.
-    # In GMT (late Oct → late Mar) change to "0 9-18 * * *".
-    - cron: "17 8-17 * * *"
-  workflow_dispatch: {}   # lets you trigger a run manually from the Actions tab
+  workflow_dispatch: {}
+
+  repository_dispatch:
+    types: [cloudflare-dashboard-refresh]
 
 
 # Allow the workflow to push the rebuilt HTML back to the repo.
